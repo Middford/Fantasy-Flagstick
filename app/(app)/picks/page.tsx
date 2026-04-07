@@ -75,14 +75,16 @@ export default async function PicksPage({
     .order('current_price', { ascending: false })
 
   // Get user's primary league
-  const { data: membership } = await supabase
+  const { data: membership } = await db
     .from('league_members')
     .select('league_id')
     .eq('user_id', userId)
     .limit(1)
     .single()
 
-  if (!membership) {
+  let leagueId: string | null = membership?.league_id ?? null
+
+  if (!leagueId) {
     // Auto-join global league — use service client so this works even if JWT template isn't configured
     const { data: globalLeague } = await db
       .from('leagues')
@@ -101,14 +103,13 @@ export default async function PicksPage({
         user_id: userId,
         tournament_id: tournament.id,
       })
+      leagueId = globalLeague.id
     }
   }
 
-  const leagueId = membership?.league_id ?? null
-
   // Get existing picks for selected round
   const { data: picks } = leagueId
-    ? await supabase
+    ? await db
         .from('picks')
         .select('*')
         .eq('user_id', userId)
@@ -118,7 +119,7 @@ export default async function PicksPage({
 
   // Get chips
   const { data: chips } = leagueId
-    ? await supabase
+    ? await db
         .from('chips')
         .select('*')
         .eq('user_id', userId)
