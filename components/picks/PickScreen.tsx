@@ -190,6 +190,7 @@ export default function PickScreen({
       <HoleGrid
         holes={initialHoles}
         picks={picks}
+        players={players}
         selectedHole={selectedHole}
         postmanPlayerId={postmanPlayerId}
         onSelectHole={setSelectedHole}

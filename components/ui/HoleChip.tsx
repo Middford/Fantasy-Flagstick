@@ -4,6 +4,8 @@ interface HoleChipProps {
   holeNumber: number
   par: number
   scoreVsPar?: number | null
+  playerName?: string | null
+  pricePaid?: number | null
   isWater?: boolean
   isPostman?: boolean
   isMulligan?: boolean
@@ -31,6 +33,8 @@ function getScoreLabel(scoreVsPar: number | null | undefined): string {
 export default function HoleChip({
   holeNumber,
   scoreVsPar,
+  playerName,
+  pricePaid,
   isWater,
   isPostman,
   isMulligan,
@@ -40,24 +44,32 @@ export default function HoleChip({
   onClick,
 }: HoleChipProps) {
   const hasScore = scoreVsPar !== null && scoreVsPar !== undefined
+  const hasPick = playerName != null
+
+  // Show just the surname for compactness: "S. Scheffler" → "Scheffler"
+  const surname = playerName
+    ? (playerName.includes(' ') ? playerName.split(' ').slice(1).join(' ') : playerName)
+    : null
 
   return (
     <button
       onClick={onClick}
       className={`
-        relative flex flex-col items-center justify-center
-        w-full h-[52px] rounded-lg text-xs font-bold transition-all
+        relative flex flex-col items-center justify-center gap-0.5
+        w-full h-[72px] rounded-lg font-bold transition-all px-0.5
         ${isSelected
           ? 'bg-[#1a3d2b] border-2 border-[#c9a227] scale-105'
-          : 'bg-[#1a3d2b] border border-[#2d5c3f]'}
-        ${isPostman ? 'border-[#d63030] border-2' : ''}
-        ${isMulligan ? 'border-[#20a090] border-2' : ''}
-        ${isLockingSoon ? 'border-[#e8a020] border-2 animate-pulse' : ''}
+          : hasPick
+          ? 'bg-[#1a3d2b] border border-[#3a6b4a]'
+          : 'bg-[#0f2518] border border-[#1a3d2b]'}
+        ${isPostman ? '!border-[#d63030] !border-2' : ''}
+        ${isMulligan ? '!border-[#20a090] !border-2' : ''}
+        ${isLockingSoon ? '!border-[#e8a020] !border-2 animate-pulse' : ''}
         ${isLocked ? 'opacity-70' : ''}
       `}
       aria-label={`Hole ${holeNumber}`}
     >
-      {/* Badges top-left */}
+      {/* Badges */}
       {isPostman && (
         <span className="absolute -top-1 -left-1 text-[8px] bg-[#d63030] rounded-full w-3.5 h-3.5 flex items-center justify-center">
           P
@@ -68,25 +80,37 @@ export default function HoleChip({
           M
         </span>
       )}
-      {/* Lock badge top-right */}
       {isLocked && (
         <span className="absolute -top-1 -right-1 text-[8px]">🔒</span>
       )}
 
       {/* Hole number */}
-      <span className="text-[#8ab89a] text-[10px] leading-none">{holeNumber}</span>
+      <span className="text-[#5a7a65] text-[9px] leading-none">{holeNumber}</span>
 
-      {/* Score or water */}
+      {/* Player name — surname only, truncated */}
+      {surname ? (
+        <span className="text-white text-[8px] leading-tight w-full text-center truncate px-0.5">
+          {surname}
+        </span>
+      ) : (
+        <span className="text-[#2d5c3f] text-[9px] leading-none">·</span>
+      )}
+
+      {/* Score (when playing) or price paid (pre-round) */}
       {isWater ? (
-        <span className="text-base leading-none mt-0.5">🌊</span>
+        <span className="text-[11px] leading-none">🌊</span>
       ) : hasScore ? (
         <span
-          className={`text-[13px] font-score leading-none mt-0.5 w-6 h-6 flex items-center justify-center ${getScoreClass(scoreVsPar)}`}
+          className={`text-[12px] font-score leading-none w-6 h-6 flex items-center justify-center ${getScoreClass(scoreVsPar)}`}
         >
           {getScoreLabel(scoreVsPar)}
         </span>
+      ) : pricePaid != null ? (
+        <span className="text-[#c9a227] text-[9px] font-score leading-none">
+          £{pricePaid}m
+        </span>
       ) : (
-        <span className="text-[#5a7a65] text-[10px] mt-0.5">—</span>
+        <span className="text-[#2d5c3f] text-[9px] leading-none">—</span>
       )}
     </button>
   )

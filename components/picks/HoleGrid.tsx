@@ -1,11 +1,12 @@
 'use client'
 
-import type { Hole, Pick } from '@/lib/supabase/types'
+import type { Hole, Pick, Player } from '@/lib/supabase/types'
 import HoleChip from '@/components/ui/HoleChip'
 
 interface HoleGridProps {
   holes: Hole[]
   picks: Pick[]
+  players: Player[]
   selectedHole: number
   postmanPlayerId: string | null
   onSelectHole: (holeNumber: number) => void
@@ -14,12 +15,16 @@ interface HoleGridProps {
 export default function HoleGrid({
   holes,
   picks,
+  players,
   selectedHole,
   postmanPlayerId,
   onSelectHole,
 }: HoleGridProps) {
   const pickMap = new Map<number, Pick>()
   picks.forEach((p) => pickMap.set(p.hole_number, p))
+
+  const playerMap = new Map<string, Player>()
+  players.forEach((p) => playerMap.set(p.id, p))
 
   const sorted = [...holes].sort((a, b) => a.number - b.number)
   // Three rows of 6
@@ -48,6 +53,8 @@ export default function HoleGrid({
                   isMulligan={pick?.is_mulligan_used}
                   isLocked={pick?.is_locked}
                   isSelected={selectedHole === hole.number}
+                  playerName={pick ? (playerMap.get(pick.player_id)?.name ?? null) : null}
+                  pricePaid={pick?.price_paid ?? null}
                   onClick={() => onSelectHole(hole.number)}
                 />
               </div>
