@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Player, Hole, Pick, Chips } from '@/lib/supabase/types'
 import { calculateRemainingBudget, getPlayerUseCount } from '@/lib/scoring/calculator'
+import { useScoreSync } from '@/hooks/useScoreSync'
 import BudgetBar from './BudgetBar'
 import ChipsPanel from './ChipsPanel'
 import HoleGrid from './HoleGrid'
@@ -36,6 +37,9 @@ export default function PickScreen({
   const [chips, setChips] = useState<Chips | null>(initialChips)
   const [selectedHole, setSelectedHole] = useState<number>(1)
   const [saving, setSaving] = useState(false)
+
+  // Sync scores every 30s from client — replaces Vercel Cron (Hobby plan limitation)
+  useScoreSync(true)
 
   const postmanKey = `postman_r${round}_player_id` as keyof Chips
   const postmanPlayerId = chips ? (chips[postmanKey] as string | null) : null

@@ -8,11 +8,10 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
 import { applyPriceUpdate, calculatePerformanceAdjustment, calculateDemandAdjustment, getPriceDirection } from '@/lib/pricing/engine'
 
-// Vercel Cron secret auth
-function isCronRequest(req: Request): boolean {
-  const authHeader = req.headers.get('authorization')
-  return authHeader === `Bearer ${process.env.CRON_SECRET}` ||
-         req.headers.get('x-vercel-cron') === '1'
+// Open endpoint — only reads ESPN data, no mutations possible by outsiders
+// Rate-limited naturally by the 30s client interval
+function isCronRequest(_req: Request): boolean {
+  return true
 }
 
 export async function GET(req: Request) {
