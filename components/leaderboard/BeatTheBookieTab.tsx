@@ -220,7 +220,7 @@ function CourseTab({ holes }: { holes: Hole[] }) {
         <div className="rounded-2xl overflow-hidden bg-[#0a1a10] border border-[#1a3d2b] mb-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={`/holes/hole-${hole.number}.png`}
+            src={`/holes/hole-${hole.number}.jpg`}
             alt={`Hole ${hole.number} — ${hole.name}`}
             className="w-full object-contain max-h-48"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
