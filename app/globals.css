@@ -1,26 +1,100 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=Source+Sans+3:wght@300;400;600;700&family=Oswald:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --masters-deep-green: #0a1a10;
+  --masters-mid-green: #1a3d2b;
+  --masters-light-green: #2d5c3f;
+  --masters-pale-green: #3d7a52;
+  --masters-gold: #c9a227;
+  --masters-gold-light: #f0d060;
+  --masters-muted: #8ab89a;
+  --masters-dim: #5a7a65;
+  --masters-red: #e05555;
+  --masters-blue: #4a90d9;
+  --masters-warning: #e8a020;
+  --masters-danger: #cc3333;
+  --masters-postman: #d63030;
+  --masters-teal: #20a090;
+  --masters-jacket: #2a7a3a;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background-color: var(--masters-deep-green);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Source Sans 3', sans-serif;
+  max-width: 390px;
+  margin: 0 auto;
+  background-color: var(--masters-deep-green);
+  color: white;
+  min-height: 100vh;
+}
+
+h1, h2, h3 {
+  font-family: 'Playfair Display', serif;
+}
+
+.font-score {
+  font-family: 'Oswald', sans-serif;
+}
+
+/* Score colour convention */
+.score-eagle {
+  background-color: var(--masters-gold);
+  border-radius: 50%;
+  color: #0a1a10;
+  font-weight: 700;
+}
+.score-birdie {
+  background-color: var(--masters-red);
+  border-radius: 50%;
+  color: white;
+  font-weight: 700;
+}
+.score-par {
+  color: var(--masters-muted);
+}
+.score-bogey {
+  border: 2px solid var(--masters-blue);
+  color: var(--masters-blue);
+}
+.score-double {
+  border: 2px solid #1a2a8b;
+  background-color: #1a2a8b;
+  color: white;
+}
+.score-water {
+  background-color: #0a1a44;
+  color: var(--masters-blue);
+}
+
+/* Touch targets — minimum 44px */
+button, a[role="button"] {
+  min-height: 44px;
+}
+
+/* iOS safe area bottom */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* Hole images */
+.hole-image {
+  filter: saturate(1.1) contrast(1.05);
+}
+.hole-image-overlay {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 40%,
+    rgba(10, 26, 16, 0.6) 70%,
+    rgba(10, 26, 16, 0.95) 100%
+  );
 }
