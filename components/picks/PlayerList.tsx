@@ -43,7 +43,13 @@ export default function PlayerList({
   teeTimes,
   onPick,
 }: PlayerListProps) {
-  // Sort: available → picked → locked out → can't afford
+  // Sort: availability groups first, then by tee time ascending, price descending as tiebreak
+  const getTeeTime = (p: Player): string => {
+    const pt = teeTimes?.[p.name_full.toLowerCase()]
+    const t = round === 2 ? (pt?.r2 ?? pt?.r1) : pt?.r1
+    return t ?? '99:99'  // No tee time → push to end
+  }
+
   const sorted = [...players].sort((a, b) => {
     const aLocked = completedHoleScores.get(a.id) ?? false
     const bLocked = completedHoleScores.get(b.id) ?? false
@@ -52,10 +58,18 @@ export default function PlayerList({
     const aCantAfford = a.current_price > remainingBudget
     const bCantAfford = b.current_price > remainingBudget
 
+    // Availability groups
     if (aLocked !== bLocked) return aLocked ? 1 : -1
     if (aMaxUses !== bMaxUses) return aMaxUses ? 1 : -1
     if (aCantAfford !== bCantAfford) return aCantAfford ? 1 : -1
-    return a.current_price - b.current_price
+
+    // Within each group: earliest tee time first (HH:MM compares lexicographically)
+    const aTee = getTeeTime(a)
+    const bTee = getTeeTime(b)
+    if (aTee !== bTee) return aTee.localeCompare(bTee)
+
+    // Tiebreak: higher price first (stars first within same slot)
+    return b.current_price - a.current_price
   })
 
   const activePlayers = sorted.filter((p) => p.status === 'active')
