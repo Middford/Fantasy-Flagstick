@@ -168,17 +168,38 @@ export default function ProfileTabs({ seasons, majorTrophies, earnedTypes, leagu
           </div>
 
           <div className="px-4 py-4">
-            <h3 className="text-xs font-bold text-[#c9a227] uppercase tracking-wide mb-2">🔒 Locking</h3>
+            <h3 className="text-xs font-bold text-[#c9a227] uppercase tracking-wide mb-2">🔒 Locking &amp; Swapping</h3>
+            <p className="text-sm text-[#8ab89a] leading-relaxed mb-2">
+              You can swap your pick for any hole freely <span className="text-white font-bold">until your chosen player completes that hole</span>. The moment they finish, the pick locks automatically.
+            </p>
+            <p className="text-sm text-[#8ab89a] leading-relaxed mb-2">
+              If your player is still selected when they <span className="text-white font-bold">tee off on the next hole</span>, they lock immediately for that hole too — even before they finish it.
+            </p>
             <p className="text-sm text-[#8ab89a] leading-relaxed">
-              Picks lock once your chosen player completes a hole. Swap freely before they tee off. Only a Mulligan can change a locked pick.
+              Only the <span className="text-[#20a090] font-bold">🔄 Mulligan</span> chip can change a locked pick.
             </p>
           </div>
 
           <div className="px-4 py-4">
             <h3 className="text-xs font-bold text-[#c9a227] uppercase tracking-wide mb-2">🥇 Winning</h3>
-            <p className="text-sm text-[#8ab89a] leading-relaxed">
-              Lowest combined score across all four rounds wins. Tiebreaker: most holes completed.
+            <p className="text-sm text-[#8ab89a] leading-relaxed mb-2">
+              Lowest combined score across all four rounds wins.
             </p>
+            <p className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-1.5">Tiebreaker (in order)</p>
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-[#4adb7a] font-bold w-5">1.</span>
+                <span className="text-[#8ab89a]">Most eagles scored</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[#4adb7a] font-bold w-5">2.</span>
+                <span className="text-[#8ab89a]">Most birdies scored</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[#c9a227] font-bold w-5">3.</span>
+                <span className="text-[#8ab89a]">Highest total value gain from player price rises</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
