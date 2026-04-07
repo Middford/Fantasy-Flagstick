@@ -98,12 +98,20 @@ export async function POST(req: Request) {
   }
 
   // bookmaker log implied probability by dg_id  (log(1/decimal_odds))
+  // DataGolf outrights data can be an array OR an object keyed by player — handle both
   const logOddsMap = new Map<number, number>()
   if (outrights) {
-    for (const entry of outrights.data) {
-      if (entry.win != null && entry.win > 1) {
-        logOddsMap.set(entry.dg_id, Math.log(1 / entry.win))
+    try {
+      const entries = Array.isArray(outrights.data)
+        ? outrights.data
+        : Object.values(outrights.data as Record<string, unknown>)
+      for (const entry of entries as Array<{ dg_id?: number; win?: number }>) {
+        if (entry.dg_id != null && entry.win != null && entry.win > 1) {
+          logOddsMap.set(entry.dg_id, Math.log(1 / entry.win))
+        }
       }
+    } catch {
+      // Outrights data was in an unexpected format — fall back to top_10 only pricing
     }
   }
 
