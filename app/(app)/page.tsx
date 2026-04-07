@@ -95,7 +95,7 @@ export default async function HomePage() {
           {/* Logo: F icon + "antasy Flagstick" = Fantasy Flagstick */}
           <div className="flex items-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/ff-logo.png" alt="F" className="h-10 w-10 object-cover object-left" />
+            <img src="/ff-logo.png" alt="F" className="h-20 w-20 object-cover object-left" />
             <span className="text-[#c9a227] font-bold text-lg leading-none -ml-1">antasy Flagstick</span>
           </div>
           <LivePill round={tournament.current_round} />
