@@ -46,7 +46,7 @@ export default function HoleChip({
       onClick={onClick}
       className={`
         relative flex flex-col items-center justify-center
-        w-[38px] h-[52px] rounded-lg text-xs font-bold transition-all
+        w-full h-[52px] rounded-lg text-xs font-bold transition-all
         ${isSelected
           ? 'bg-[#1a3d2b] border-2 border-[#c9a227] scale-105'
           : 'bg-[#1a3d2b] border border-[#2d5c3f]'}

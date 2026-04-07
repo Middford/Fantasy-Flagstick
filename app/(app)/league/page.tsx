@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
 import LeagueLeaderboard from '@/components/leaderboard/LeagueLeaderboard'
 import CreateJoinLeague from '@/components/leaderboard/CreateJoinLeague'
 
@@ -9,8 +9,9 @@ export default async function LeaguePage() {
   if (!userId) redirect('/sign-in')
 
   const supabase = await createServerSupabaseClient()
+  const db = createServiceClient()
 
-  const { data: tournament } = await supabase
+  const { data: tournament } = await db
     .from('tournaments')
     .select('*')
     .eq('active', true)

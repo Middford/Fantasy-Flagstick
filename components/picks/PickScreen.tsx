@@ -156,10 +156,27 @@ export default function PickScreen({
 
   const selectedHoleData = initialHoles.find((h) => h.number === selectedHole)
 
+  const allPicked = roundPicks.length === 18
+
   return (
     <div className="flex flex-col">
       {/* Budget bar */}
       <BudgetBar remaining={remaining} total={totalBudget} holesLeft={holesLeft} />
+
+      {/* Save status — auto-save happens on every pick tap */}
+      <div className={`px-4 py-1.5 flex items-center justify-end gap-1.5 text-[11px] transition-colors
+        ${saving ? 'text-[#c9a227]' : allPicked ? 'text-[#4adb7a]' : 'text-[#5a7a65]'}`}>
+        {saving ? (
+          <>
+            <span className="inline-block w-2 h-2 rounded-full bg-[#c9a227] animate-pulse" />
+            Saving...
+          </>
+        ) : allPicked ? (
+          <>✓ Team saved — all 18 holes picked</>
+        ) : (
+          <>Picks save automatically</>
+        )}
+      </div>
 
       {/* Chips */}
       <ChipsPanel

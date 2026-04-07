@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -24,6 +24,12 @@ export async function POST(req: Request) {
   const { name, tournamentId } = parsed.data
   const supabase = createServiceClient()
 
+  // Get user's display name from Clerk
+  const user = await currentUser()
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ')
+    || user?.emailAddresses?.[0]?.emailAddress?.split('@')[0]
+    || 'Player'
+
   // Generate unique code
   let code = generateCode()
   let attempts = 0
@@ -45,11 +51,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to create league' }, { status: 500 })
   }
 
-  // Add creator as member
+  // Add creator as member with their real name
   await supabase.from('league_members').insert({
     league_id: league.id,
     user_id: userId,
-    display_name: null,
+    display_name: displayName,
   })
 
   // Create chips row for creator

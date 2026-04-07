@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -18,6 +18,12 @@ export async function POST(req: Request) {
 
   const { code, tournamentId } = parsed.data
   const supabase = createServiceClient()
+
+  // Get user's display name from Clerk
+  const user = await currentUser()
+  const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ')
+    || user?.emailAddresses?.[0]?.emailAddress?.split('@')[0]
+    || 'Player'
 
   // Find league
   const { data: league } = await supabase
@@ -51,10 +57,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'League is full' }, { status: 400 })
   }
 
-  // Join league
+  // Join league with real name
   await supabase.from('league_members').insert({
     league_id: league.id,
     user_id: userId,
+    display_name: displayName,
   })
 
   // Create chips row
