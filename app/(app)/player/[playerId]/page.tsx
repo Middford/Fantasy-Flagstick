@@ -65,52 +65,53 @@ const countryFlags: Record<string, string> = {
   ITA:'🇮🇹', DEN:'🇩🇰', AUT:'🇦🇹', THA:'🇹🇭',
 }
 
-// Masters-style scorecard cell decoration
-function ScoreCell({ score, par }: { score: number | null; par: number }) {
+// Score cell — vertical layout (one column per round)
+function ScoreCell({ score, par, isTotal }: { score: number | null; par: number; isTotal?: boolean }) {
   if (score === null) {
-    return <td className="border border-[#2d5c3f] text-center text-[10px] text-[#3d5c40] min-w-[28px] py-1.5">–</td>
+    return (
+      <td className="text-center py-2 px-1 border-b border-[#1a3d2b] text-[#3d5c40] text-xs">—</td>
+    )
   }
-  const vspar = score - par
-  let cellClass = 'min-w-[28px] py-1.5 text-center text-[11px] font-bold border border-[#2d5c3f] relative'
-  let inner: React.ReactNode = score
+  const vspar = isTotal ? score : score - par
+
+  let inner: React.ReactNode
+  let bg = ''
 
   if (vspar <= -2) {
-    // Eagle or better — double circle (gold outer, green inner)
     inner = (
-      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border-2 border-[#4adb7a] bg-[#1a3d2b] text-[#4adb7a] text-[9px] font-bold">
+      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 border-[#4adb7a] text-[#4adb7a] text-[11px] font-bold">
         {score}
       </span>
     )
-    cellClass += ' bg-[#0a1a10]'
   } else if (vspar === -1) {
-    // Birdie — circle
     inner = (
-      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[#4adb7a] text-[#4adb7a] text-[9px] font-bold">
+      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-[#4adb7a] text-[#4adb7a] text-[11px] font-bold">
         {score}
       </span>
     )
-    cellClass += ' bg-[#0a1a10]'
   } else if (vspar === 0) {
-    cellClass += ' text-white bg-[#0f1f14]'
+    inner = <span className="text-white text-[11px] font-bold">{score}</span>
   } else if (vspar === 1) {
-    // Bogey — square outline
     inner = (
-      <span className="inline-flex items-center justify-center w-5 h-5 border border-[#e05555] text-[#e05555] text-[9px] font-bold">
+      <span className="inline-flex items-center justify-center w-6 h-6 border border-[#e05555] text-[#e05555] text-[11px] font-bold">
         {score}
       </span>
     )
-    cellClass += ' bg-[#0a1a10]'
+    bg = 'bg-[#1a0a0a]'
   } else {
-    // Double bogey+ — double square (filled)
     inner = (
-      <span className="inline-flex items-center justify-center w-5 h-5 bg-[#e05555] text-white text-[9px] font-bold">
+      <span className="inline-flex items-center justify-center w-6 h-6 bg-[#e05555] text-white text-[11px] font-bold">
         {score}
       </span>
     )
-    cellClass += ' bg-[#1a0a0a]'
+    bg = 'bg-[#1a0a0a]'
   }
 
-  return <td className={cellClass}>{inner}</td>
+  return (
+    <td className={`text-center py-2 px-1 border-b border-[#1a3d2b] ${bg}`}>
+      {inner}
+    </td>
+  )
 }
 
 export default async function PlayerProfilePage({
@@ -246,79 +247,67 @@ export default async function PlayerProfilePage({
         </div>
       </div>
 
-      {/* Official Scorecard — Masters style */}
+      {/* Official Scorecard — vertical (one row per hole) */}
       <div className="border-b border-[#1a3d2b]">
-        <div className="px-4 pt-4 pb-2">
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
           <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">Official Score Card</h3>
+          {/* Legend */}
+          <div className="flex gap-2 text-[9px] text-[#5a7a65]">
+            <span className="flex items-center gap-0.5"><span className="inline-flex w-3 h-3 rounded-full border-2 border-[#4adb7a]" />Eagle</span>
+            <span className="flex items-center gap-0.5"><span className="inline-flex w-3 h-3 rounded-full border border-[#4adb7a]" />Birdie</span>
+            <span className="flex items-center gap-0.5"><span className="inline-flex w-3 h-3 border border-[#e05555]" />Bogey</span>
+            <span className="flex items-center gap-0.5"><span className="inline-flex w-3 h-3 bg-[#e05555]" />D+</span>
+          </div>
         </div>
 
-        {/* Legend */}
-        <div className="flex gap-3 px-4 pb-2 text-[9px] text-[#8ab89a]">
-          <span className="flex items-center gap-1">
-            <span className="inline-flex w-3 h-3 rounded-full border border-[#4adb7a]" /> Birdie
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-flex w-3 h-3 border border-[#e05555]" /> Bogey
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-flex w-3 h-3 bg-[#e05555]" /> D.Bogey+
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-flex w-3 h-3 rounded-full border-2 border-[#4adb7a] bg-[#1a3d2b]" /> Eagle
-          </span>
-        </div>
-
-        <div className="overflow-x-auto pb-4 px-4">
-          <table className="border-collapse text-[11px] w-full" style={{ minWidth: 620 }}>
-            <thead>
-              {/* Hole header */}
-              <tr className="bg-[#1a4d2e]">
-                <th className="text-left px-2 py-2 text-white font-bold border border-[#2d6b40] min-w-[32px] text-[10px]">Hole</th>
-                {holeNums.map((n) => (
-                  <th key={n} className="text-center px-0 py-2 text-white font-bold border border-[#2d6b40] min-w-[28px] text-[10px]">{n}</th>
-                ))}
-                <th className="text-center px-2 py-2 text-white font-bold border border-[#2d6b40] text-[10px]">Total</th>
-              </tr>
-              {/* Par row */}
-              <tr className="bg-[#164028]">
-                <td className="text-left px-2 py-1.5 text-[#c9a227] font-bold border border-[#2d6b40] text-[10px]">Par</td>
-                {holeNums.map((n) => (
-                  <td key={n} className="text-center py-1.5 text-[#c9a227] font-bold border border-[#2d6b40] text-[10px]">
-                    {parMap[n]}
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-[#1a4d2e]">
+              <th className="text-left pl-4 pr-2 py-2 text-white font-bold text-xs w-14">Hole</th>
+              <th className="text-center px-2 py-2 text-[#c9a227] font-bold text-xs w-10">Par</th>
+              <th className="text-center px-2 py-2 text-white font-bold text-xs">R1</th>
+              <th className="text-center px-2 py-2 text-white font-bold text-xs">R2</th>
+              <th className="text-center px-2 py-2 text-white font-bold text-xs">R3</th>
+              <th className="text-center px-2 py-2 text-white font-bold text-xs">R4</th>
+            </tr>
+          </thead>
+          <tbody>
+            {holeNums.map((n) => {
+              const par = parMap[n]
+              const isAmen = n === 11 || n === 12 || n === 13
+              return (
+                <tr key={n} className={isAmen ? 'bg-[#0f1f0a]' : 'bg-[#0a1a10]'}>
+                  <td className="pl-4 pr-2 py-2 border-b border-[#1a3d2b]">
+                    <span className={`text-xs font-bold ${isAmen ? 'text-[#e8a020]' : 'text-[#8ab89a]'}`}>{n}</span>
                   </td>
-                ))}
-                <td className="text-center py-1.5 text-[#c9a227] font-bold border border-[#2d6b40] text-[10px]">{augustaPar}</td>
-              </tr>
-            </thead>
-            <tbody>
+                  <td className="text-center px-2 py-2 border-b border-[#1a3d2b] text-xs text-[#c9a227] font-bold">{par}</td>
+                  {([1, 2, 3, 4] as const).map((round) => {
+                    const hs = byRound[round].find((s) => s.hole_number === n && s.confirmed)
+                    return <ScoreCell key={round} score={hs?.score ?? null} par={par} />
+                  })}
+                </tr>
+              )
+            })}
+            {/* Totals row */}
+            <tr className="bg-[#1a4d2e]">
+              <td className="pl-4 pr-2 py-2 text-xs font-bold text-white" colSpan={2}>Total</td>
               {([1, 2, 3, 4] as const).map((round) => {
-                const scores = byRound[round]
-                const scoreMap = new Map(scores.filter((s) => s.confirmed).map((s) => [s.hole_number, s.score]))
-                const total = roundTotal(round)
                 const vp = roundVsPar(round)
                 return (
-                  <tr key={round} className="bg-[#0a1a10]">
-                    <td className="text-left px-2 py-1.5 text-[#8ab89a] font-bold border border-[#1a3d2b] text-[10px] whitespace-nowrap">
-                      R{round}
-                    </td>
-                    {holeNums.map((n) => (
-                      <ScoreCell key={n} score={scoreMap.get(n) ?? null} par={parMap[n]} />
-                    ))}
-                    <td className="text-center py-1.5 border border-[#1a3d2b] text-[10px]">
-                      {total !== null ? (
-                        <span className={`font-bold font-score ${scoreColour(vp ?? 0)}`}>
-                          {vp !== null ? scoreLabel(vp) : total}
-                        </span>
-                      ) : (
-                        <span className="text-[#3d5c40]">—</span>
-                      )}
-                    </td>
-                  </tr>
+                  <td key={round} className="text-center px-1 py-2">
+                    {vp !== null ? (
+                      <span className={`text-xs font-bold font-score ${scoreColour(vp)}`}>
+                        {scoreLabel(vp)}
+                      </span>
+                    ) : (
+                      <span className="text-[#3d5c40] text-xs">—</span>
+                    )}
+                  </td>
                 )
               })}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       {/* Bio */}
