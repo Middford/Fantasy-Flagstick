@@ -91,13 +91,14 @@ export default async function HomePage() {
     <div className="flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0a1a10] border-b border-[#1a3d2b] px-4 py-3">
-        <div className="grid grid-cols-3 items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/masters-logo.jpg" alt="The Masters" className="h-16 w-auto rounded" />
-          <h1 className="text-base font-bold text-[#c9a227] text-center">Fantasy Flagstick</h1>
-          <div className="flex justify-end">
-            <LivePill round={tournament.current_round} />
+        <div className="flex items-center justify-between">
+          {/* Logo: F icon + "antasy Flagstick" = Fantasy Flagstick */}
+          <div className="flex items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/ff-logo.png" alt="F" className="h-10 w-10 object-cover object-left" />
+            <span className="text-[#c9a227] font-bold text-lg leading-none -ml-1">antasy Flagstick</span>
           </div>
+          <LivePill round={tournament.current_round} />
         </div>
       </header>
 
