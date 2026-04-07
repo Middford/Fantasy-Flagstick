@@ -1,74 +1,89 @@
-// Fantasy Flagstick — Live Masters outright odds via The Odds API
-// Requires ODDS_API_KEY env var (free tier: the-odds-api.com)
+// Fantasy Flagstick — Live Masters outright odds via DataGolf API
+// Uses DATAGOLF_API_KEY env var
 
 import { NextResponse } from 'next/server'
 
-const ODDS_API_KEY = process.env.ODDS_API_KEY
-const SPORT = 'golf_masters_tournament_winner'
-const REGIONS = 'uk'
-const MARKETS = 'outrights'
+const DATAGOLF_API_KEY = process.env.DATAGOLF_API_KEY
+
+// UK-relevant bookmakers to show (in display preference order)
+const UK_BOOKS = ['bet365', 'skybet', 'williamhill', 'unibet', 'betway', 'pinnacle']
+
+const BOOK_LABELS: Record<string, string> = {
+  bet365:      'Bet365',
+  skybet:      'Sky Bet',
+  williamhill: 'William Hill',
+  unibet:      'Unibet',
+  betway:      'Betway',
+  pinnacle:    'Pinnacle',
+}
 
 export interface OddsPlayer {
   name: string
-  price: number        // decimal odds e.g. 12.0
-  fractional: string   // e.g. "11/1"
-  bookmaker: string
+  bestOdds: string        // fractional e.g. "11/1"
+  bestOddsDecimal: number
+  bestBook: string
+  books: { name: string; fractional: string; decimal: number }[]
 }
 
 function decimalToFractional(decimal: number): string {
-  const numerator = Math.round((decimal - 1) * 100)
-  const denominator = 100
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
-  const g = gcd(numerator, denominator)
-  return `${numerator / g}/${denominator / g}`
+  const n = Math.round((decimal - 1) * 100)
+  const d = 100
+  const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+  const g = gcd(n, d)
+  return `${n / g}/${d / g}`
+}
+
+function formatName(raw: string): string {
+  // DataGolf format: "Last, First" → "First Last"
+  const parts = raw.split(', ')
+  return parts.length === 2 ? `${parts[1]} ${parts[0]}` : raw
 }
 
 export async function GET() {
-  if (!ODDS_API_KEY) {
-    return NextResponse.json({ error: 'ODDS_API_KEY not configured' }, { status: 503 })
+  if (!DATAGOLF_API_KEY) {
+    return NextResponse.json({ error: 'DATAGOLF_API_KEY not configured' }, { status: 503 })
   }
 
   try {
-    const url = `https://api.the-odds-api.com/v4/sports/${SPORT}/odds/?apiKey=${ODDS_API_KEY}&regions=${REGIONS}&markets=${MARKETS}&oddsFormat=decimal`
+    const url = `https://feeds.datagolf.com/betting-tools/outrights?tour=pga&market=win&odds_format=decimal&file_format=json&key=${DATAGOLF_API_KEY}`
     const res = await fetch(url, { next: { revalidate: 300 } }) // cache 5 mins
 
     if (!res.ok) {
-      const text = await res.text()
-      return NextResponse.json({ error: `Odds API error: ${text}` }, { status: res.status })
+      return NextResponse.json({ error: `DataGolf error: ${res.status}` }, { status: res.status })
     }
 
     const data = await res.json()
 
-    // Aggregate: best (lowest) price per player across all bookmakers
-    const playerMap = new Map<string, { price: number; bookmaker: string }>()
+    const players: OddsPlayer[] = (data.odds ?? [])
+      .map((entry: Record<string, unknown>) => {
+        const books = UK_BOOKS
+          .filter((b) => typeof entry[b] === 'number')
+          .map((b) => ({
+            name: BOOK_LABELS[b] ?? b,
+            decimal: entry[b] as number,
+            fractional: decimalToFractional(entry[b] as number),
+          }))
+          .sort((a, b) => b.decimal - a.decimal) // best price first
 
-    for (const event of data) {
-      for (const bookmaker of event.bookmakers ?? []) {
-        for (const market of bookmaker.markets ?? []) {
-          if (market.key !== 'outrights') continue
-          for (const outcome of market.outcomes ?? []) {
-            const name: string = outcome.name
-            const price: number = outcome.price
-            const existing = playerMap.get(name)
-            // Keep the best (highest) price for the player
-            if (!existing || price > existing.price) {
-              playerMap.set(name, { price, bookmaker: bookmaker.title })
-            }
-          }
+        if (books.length === 0) return null
+
+        const best = books[0]
+        return {
+          name: formatName(entry.player_name as string),
+          bestOdds: best.fractional,
+          bestOddsDecimal: best.decimal,
+          bestBook: best.name,
+          books,
         }
-      }
-    }
+      })
+      .filter(Boolean)
+      .sort((a: OddsPlayer, b: OddsPlayer) => a.bestOddsDecimal - b.bestOddsDecimal)
 
-    const players: OddsPlayer[] = Array.from(playerMap.entries())
-      .map(([name, { price, bookmaker }]) => ({
-        name,
-        price,
-        fractional: decimalToFractional(price),
-        bookmaker,
-      }))
-      .sort((a, b) => a.price - b.price) // shortest price first
-
-    return NextResponse.json({ players, updatedAt: new Date().toISOString() })
+    return NextResponse.json({
+      players,
+      eventName: data.event_name,
+      updatedAt: data.last_updated,
+    })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

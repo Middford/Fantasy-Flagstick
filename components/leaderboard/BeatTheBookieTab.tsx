@@ -18,9 +18,10 @@ interface Props {
 
 interface OddsPlayer {
   name: string
-  price: number
-  fractional: string
-  bookmaker: string
+  bestOdds: string
+  bestOddsDecimal: number
+  bestBook: string
+  books: { name: string; fractional: string; decimal: number }[]
 }
 
 function PerformanceIcon({ index }: { index: number }) {
@@ -133,19 +134,8 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
             </div>
           ) : (
             <div className="border-b border-[#1a3d2b]">
-              {/* Column headers */}
-              <div className="flex items-center px-4 py-1.5 bg-[#0f2518]">
-                <span className="flex-1 text-[10px] font-bold text-[#5a7a65] uppercase tracking-wide">Player</span>
-                <span className="w-16 text-right text-[10px] font-bold text-[#5a7a65] uppercase tracking-wide">Odds</span>
-                <span className="w-20 text-right text-[10px] font-bold text-[#5a7a65] uppercase tracking-wide">Bookmaker</span>
-              </div>
               {odds.map((player, i) => (
-                <div key={player.name} className="flex items-center px-4 py-2.5 border-b border-[#1a3d2b]">
-                  <span className="w-6 text-[10px] text-[#5a7a65]">{i + 1}</span>
-                  <span className="flex-1 text-sm text-white font-medium truncate">{player.name}</span>
-                  <span className="w-16 text-right font-score font-bold text-[#c9a227] text-sm">{player.fractional}</span>
-                  <span className="w-20 text-right text-[10px] text-[#5a7a65] truncate">{player.bookmaker}</span>
-                </div>
+                <OddsRow key={player.name} player={player} rank={i + 1} />
               ))}
             </div>
           )}
@@ -474,6 +464,34 @@ function RulesTab() {
           The player with the <span className="text-white font-bold">lowest combined score</span> across all four rounds wins the league. Tiebreaker: most holes completed.
         </p>
       </div>
+    </div>
+  )
+}
+
+function OddsRow({ player, rank }: { player: OddsPlayer; rank: number }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="border-b border-[#1a3d2b]">
+      <button
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-left"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="w-5 text-[10px] text-[#5a7a65] shrink-0">{rank}</span>
+        <span className="flex-1 text-sm text-white font-medium truncate">{player.name}</span>
+        <span className="font-score font-bold text-[#c9a227] text-sm">{player.bestOdds}</span>
+        <span className="text-[10px] text-[#5a7a65] ml-1 w-16 text-right truncate">{player.bestBook}</span>
+        <span className="text-[#5a7a65] text-xs ml-1">{expanded ? '▲' : '▼'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 grid grid-cols-2 gap-1.5">
+          {player.books.map((b) => (
+            <div key={b.name} className="flex items-center justify-between bg-[#0f2518] rounded-lg px-2.5 py-1.5">
+              <span className="text-[10px] text-[#5a7a65]">{b.name}</span>
+              <span className="text-[11px] font-score font-bold text-[#c9a227]">{b.fractional}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
