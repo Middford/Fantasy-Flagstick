@@ -92,9 +92,19 @@ export async function POST(req: Request) {
   // ── Build lookup maps ──────────────────────────────────────────────────────
 
   // top_10 probability by dg_id
+  // DataGolf returns decimal ODDS (e.g. 2.09 for Scheffler = ~48% chance).
+  // Convert to implied probability: prob = 1 / decimal_odds
   const top10Map = new Map<number, number>()
-  for (const pred of Object.values(preds.baseline)) {
-    if (pred.top_10 != null) top10Map.set(pred.dg_id, pred.top_10)
+  const baselineEntries = Array.isArray(preds.baseline)
+    ? preds.baseline
+    : Object.values(preds.baseline as Record<string, typeof preds.baseline[keyof typeof preds.baseline]>)
+  for (const pred of baselineEntries) {
+    if (pred.top_10 != null && pred.top_10 > 0) {
+      const prob = pred.top_10 > 1
+        ? 1 / pred.top_10   // decimal odds → implied probability
+        : pred.top_10        // already a probability (future-proof)
+      top10Map.set(pred.dg_id, prob)
+    }
   }
 
   // bookmaker log implied probability by dg_id  (log(1/decimal_odds))

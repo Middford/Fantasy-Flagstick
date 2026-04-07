@@ -1,11 +1,13 @@
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
 import LivePill from '@/components/ui/LivePill'
 import DramaFeed from '@/components/leaderboard/DramaFeed'
 import BeatTheBookieTab from '@/components/leaderboard/BeatTheBookieTab'
 
-async function getActiveTournament(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>) {
-  const { data } = await supabase
+async function getActiveTournament() {
+  // Use service client — tournaments table has RLS enabled with no public read policy
+  const db = createServiceClient()
+  const { data } = await db
     .from('tournaments')
     .select('*')
     .eq('active', true)
@@ -52,7 +54,7 @@ export default async function HomePage() {
 
   const user = await currentUser()
   const supabase = await createServerSupabaseClient()
-  const tournament = await getActiveTournament(supabase)
+  const tournament = await getActiveTournament()
 
   if (!tournament) {
     return (
