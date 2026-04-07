@@ -41,6 +41,7 @@ export default function PickScreen({
   const [chips, setChips] = useState<Chips | null>(initialChips)
   const [selectedHole, setSelectedHole] = useState<number>(1)
   const [saving, setSaving] = useState(false)
+  const [postmanPickerOpen, setPostmanPickerOpen] = useState(false)
 
   // Sync scores every 30s from client — replaces Vercel Cron (Hobby plan limitation)
   useScoreSync(true)
@@ -138,18 +139,30 @@ export default function PickScreen({
 
   async function handleSponsorshipDeal() {
     if (!chips || chips.sponsorship_used) return
-    const { error } = await supabase
-      .from('chips')
-      .update({ sponsorship_used: true, sponsorship_round: round })
-      .eq('id', chips.id)
-    if (!error) {
-      setChips({ ...chips, sponsorship_used: true, sponsorship_round: round })
+    const res = await fetch('/api/chips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sponsorship', round, chipsId: chips.id }),
+    })
+    if (res.ok) setChips({ ...chips, sponsorship_used: true, sponsorship_round: round })
+  }
+
+  async function handleSelectPostman(playerId: string) {
+    if (!chips) return
+    const res = await fetch('/api/chips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'postman', round, playerId, chipsId: chips.id }),
+    })
+    if (res.ok) {
+      const key = `postman_r${round}_player_id` as keyof Chips
+      setChips({ ...chips, [key]: playerId })
     }
+    setPostmanPickerOpen(false)
   }
 
   async function handleMulligan() {
-    // Open mulligan UI — for now just a placeholder
-    alert('Select a locked hole to Mulligan. Replacement player must not have completed that hole.')
+    alert('Mulligan coming soon — swap a locked pick for a player who hasn\'t completed that hole yet.')
   }
 
   const selectedHoleData = initialHoles.find((h) => h.number === selectedHole)
@@ -182,7 +195,7 @@ export default function PickScreen({
         round={round}
         players={players}
         onUseSponsorshipDeal={handleSponsorshipDeal}
-        onSelectPostman={() => {}}
+        onSelectPostman={() => setPostmanPickerOpen(true)}
         onUseMulligan={handleMulligan}
       />
 
@@ -235,6 +248,51 @@ export default function PickScreen({
         teeTimes={teeTimes}
         onPick={handlePick}
       />
+
+      {/* Postman picker — bottom sheet */}
+      {postmanPickerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setPostmanPickerOpen(false)}
+          />
+          {/* Sheet */}
+          <div className="relative bg-[#0a1a10] rounded-t-2xl max-h-[75vh] flex flex-col">
+            <div className="px-4 py-4 border-b border-[#1a3d2b]">
+              <h2 className="text-base font-bold text-white">📮 Choose your Postman</h2>
+              <p className="text-xs text-[#8ab89a] mt-0.5">
+                Their score will be doubled on every hole you pick them this round
+              </p>
+            </div>
+            <div className="overflow-y-auto flex-1 divide-y divide-[#1a3d2b]">
+              {[...players]
+                .sort((a, b) => a.current_price - b.current_price)
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => handleSelectPostman(player.id)}
+                    className="w-full flex items-center gap-3 px-4 py-3 active:bg-[#1a3d2b] text-left"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{player.name}</p>
+                      <p className="text-[11px] text-[#8ab89a]">{player.country}</p>
+                    </div>
+                    <span className="text-sm font-score font-bold text-[#c9a227]">
+                      £{player.current_price}m
+                    </span>
+                  </button>
+                ))}
+            </div>
+            <button
+              onClick={() => setPostmanPickerOpen(false)}
+              className="m-4 py-3 text-sm font-bold text-[#8ab89a] border border-[#2d5c3f] rounded-xl"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

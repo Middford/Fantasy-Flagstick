@@ -5,23 +5,16 @@ const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga'
 
 export interface EspnCompetitor {
   id: string
-  displayName: string
-  shortDisplayName: string
-  status: {
-    displayValue: string
-    thru: number | null
-    today: number
-    period: number
+  athlete: {
+    fullName: string
+    displayName: string   // "Scottie Scheffler"
+    shortName: string     // "S. Scheffler"
   }
-  statistics: Array<{
-    name: string
-    displayValue: string
-    value: number
-  }>
+  score: string           // "E", "+3", "-2"
   linescores?: Array<{
-    period: number      // hole number
-    value: string       // score on hole
-    type: string
+    period: number        // hole number
+    value?: string        // score on hole — absent pre-round
+    type?: string
   }>
 }
 
@@ -87,8 +80,8 @@ export function parseHoleScores(
     if (!par) return
 
     const scoreStr = ls.value
-    // ESPN uses 'F' for finished, numeric strings for scores
-    if (scoreStr === 'F' || scoreStr === '-') return
+    // Pre-round linescores have no value; ESPN uses 'F'/'-' for non-numeric
+    if (!scoreStr || scoreStr === 'F' || scoreStr === '-') return
 
     const score = parseInt(scoreStr, 10)
     if (isNaN(score)) return

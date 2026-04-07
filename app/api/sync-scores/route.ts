@@ -83,11 +83,15 @@ export async function GET(req: Request) {
 
     for (const competitor of competitors) {
       // Match ESPN competitor to our player
+      // ESPN structure: competitor.athlete.displayName = "Scottie Scheffler"
+      //                 competitor.athlete.shortName   = "S. Scheffler"
+      const espnName = competitor.athlete?.displayName ?? ''
+      const espnShort = competitor.athlete?.shortName ?? ''
       const player = players.find(
         (p) =>
           p.espn_id === competitor.id ||
-          p.name_full.toLowerCase().includes(competitor.displayName.toLowerCase().split(' ').pop() ?? '') ||
-          competitor.displayName.toLowerCase().includes(p.name.split('.')[1]?.trim().toLowerCase() ?? '')
+          (espnName && p.name_full.toLowerCase() === espnName.toLowerCase()) ||
+          (espnShort && p.name.toLowerCase() === espnShort.toLowerCase())
       )
 
       if (!player) continue
