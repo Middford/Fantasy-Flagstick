@@ -44,7 +44,7 @@ export default function PickScreen({
   const roundPicks = picks.filter((p) => p.round === round)
   const { remaining, totalBudget } = chips
     ? calculateRemainingBudget(picks, chips, round)
-    : { remaining: 100, totalBudget: 100, spent: 0 }
+    : { remaining: 100, totalBudget: 100 }
   const holesLeft = 18 - roundPicks.length
 
   // Player uses map

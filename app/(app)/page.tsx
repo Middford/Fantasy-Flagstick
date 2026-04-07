@@ -64,7 +64,7 @@ export default async function HomePage() {
   }
 
   const membership = await getUserLeague(supabase, userId, tournament.id)
-  const leagueId = (membership?.leagues as { id: string } | null)?.id ?? null
+  const leagueId = (membership?.leagues as unknown as { id: string } | null)?.id ?? null
   const picks = leagueId
     ? await getUserStats(supabase, userId, tournament.id, tournament.current_round, leagueId)
     : null

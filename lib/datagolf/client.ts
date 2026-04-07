@@ -30,7 +30,7 @@ const FieldUpdateSchema = z.object({
 const PreTournamentPredSchema = z.object({
   event_name: z.string(),
   last_updated: z.string(),
-  baseline: z.record(
+  baseline: z.record(z.string(),
     z.object({
       player_name: z.string(),
       dg_id: z.number(),

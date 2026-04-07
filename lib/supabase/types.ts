@@ -5,6 +5,10 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 export type Database = {
   public: {
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: Record<string, never>
+    CompositeTypes: Record<string, never>
     Tables: {
       tournaments: {
         Row: {

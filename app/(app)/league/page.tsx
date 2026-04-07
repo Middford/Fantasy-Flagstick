@@ -56,7 +56,7 @@ export default async function LeaguePage() {
         <p className="text-[#8ab89a] text-xs">{tournament.name} · Round {tournament.current_round}</p>
       </header>
       <LeagueLeaderboard
-        leagues={leagues as { id: string; name: string; code: string; type: string }[]}
+        leagues={leagues as unknown as { id: string; name: string; code: string; type: string }[]}
         tournamentId={tournament.id}
         round={tournament.current_round}
         userId={userId}
