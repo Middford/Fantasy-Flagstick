@@ -65,10 +65,10 @@ export default function PickScreen({
   // Current pick for selected hole
   const currentPick = roundPicks.find((p) => p.hole_number === selectedHole)
 
-  // Subscribe to realtime price and score updates
+  // Subscribe to realtime player price/score updates (picks now go via API route)
   useEffect(() => {
     const channel = supabase
-      .channel('picks-live')
+      .channel('players-live')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'players', filter: `tournament_id=eq.${tournamentId}` },
@@ -78,61 +78,59 @@ export default function PickScreen({
           )
         }
       )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'picks', filter: `user_id=eq.${userId}` },
-        () => refreshPicks()
-      )
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [tournamentId, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tournamentId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch picks via API (browser client has no auth → direct Supabase calls are RLS-blocked)
   const refreshPicks = useCallback(async () => {
-    const { data } = await supabase
-      .from('picks')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('league_id', leagueId)
-      .eq('round', round)
-    if (data) setPicks(data)
-  }, [supabase, userId, leagueId, round])
+    const res = await fetch(`/api/picks?leagueId=${leagueId}&round=${round}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.picks) setPicks(data.picks)
+    }
+  }, [leagueId, round])
 
   async function handlePick(player: Player) {
     if (saving) return
     setSaving(true)
 
-    // Can't pick if it would exceed budget
-    const playerCost = currentPick ? player.current_price - currentPick.price_paid : player.current_price
-    if (playerCost > remaining && !currentPick) {
+    // Can't pick if it would exceed budget (allow swapping existing pick on same hole)
+    const playerCost = currentPick
+      ? player.current_price - currentPick.price_paid
+      : player.current_price
+    if (!currentPick && playerCost > remaining) {
       setSaving(false)
       return
     }
 
     const selectedHole_ = selectedHole
 
-    const { error } = await supabase.from('picks').upsert(
-      {
-        league_id: leagueId,
-        user_id: userId,
-        tournament_id: tournamentId,
+    const res = await fetch('/api/picks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        leagueId,
+        tournamentId,
         round,
-        hole_number: selectedHole_,
-        player_id: player.id,
-        price_paid: player.current_price,
-        is_postman: player.id === postmanPlayerId,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'league_id,user_id,round,hole_number' }
-    )
+        holeNumber: selectedHole_,
+        playerId: player.id,
+        pricePaid: player.current_price,
+        isPostman: player.id === postmanPlayerId,
+      }),
+    })
 
-    if (!error) {
-      await refreshPicks()
-      // Auto-advance to next unpicked hole
-      const nextUnpicked = Array.from({ length: 18 }, (_, i) => i + 1).find(
-        (h) => h !== selectedHole_ && !picks.find((p) => p.round === round && p.hole_number === h)
-      )
-      if (nextUnpicked) setSelectedHole(nextUnpicked)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.picks) {
+        setPicks(data.picks)
+        // Auto-advance to next unpicked hole
+        const nextUnpicked = Array.from({ length: 18 }, (_, i) => i + 1).find(
+          (h) => h !== selectedHole_ && !data.picks.find((p: Pick) => p.round === round && p.hole_number === h)
+        )
+        if (nextUnpicked) setSelectedHole(nextUnpicked)
+      }
     }
 
     setSaving(false)
