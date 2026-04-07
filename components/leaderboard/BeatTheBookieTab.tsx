@@ -16,6 +16,13 @@ interface Props {
   holes?: Hole[]
 }
 
+interface OddsPlayer {
+  name: string
+  price: number
+  fractional: string
+  bookmaker: string
+}
+
 function PerformanceIcon({ index }: { index: number }) {
   if (index > 100) return <span>🚀</span>
   if (index > 0) return <span>📈</span>
@@ -27,6 +34,9 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
   const [bookieData, setBookieData] = useState<BeatTheBookie[]>([])
   const [dramaItems] = useState<DramaItem[]>([])
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [odds, setOdds] = useState<OddsPlayer[]>([])
+  const [oddsLoading, setOddsLoading] = useState(false)
+  const [oddsUpdatedAt, setOddsUpdatedAt] = useState<string | null>(null)
 
   useEffect(() => {
     if (tab !== 'bookie') return
@@ -47,10 +57,26 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
       }
     }
 
+    async function fetchOdds() {
+      setOddsLoading(true)
+      try {
+        const res = await fetch('/api/odds')
+        if (res.ok) {
+          const json = await res.json()
+          setOdds(json.players ?? [])
+          setOddsUpdatedAt(json.updatedAt ?? null)
+        }
+      } finally {
+        setOddsLoading(false)
+      }
+    }
+
     fetchBookie()
+    fetchOdds()
 
     // Realtime subscription
-    const channel = supabase
+    const supabase2 = createClient()
+    const channel = supabase2
       .channel('beat-the-bookie')
       .on(
         'postgres_changes',
@@ -59,7 +85,7 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => { supabase2.removeChannel(channel) }
   }, [tab, tournamentId, round])
 
   const outperforming = bookieData.filter((p) => (p.performance_index ?? 0) > 0)
@@ -88,32 +114,53 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
       {tab === 'course' && <CourseTab holes={holes ?? []} />}
 
       {tab === 'bookie' && (
-        <div className="flex flex-col">
-          {/* Header */}
-          <div className="px-4 py-3 border-b border-[#1a3d2b]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white">Round {round} · Live</h2>
-              {lastUpdated && (
-                <span className="text-[10px] text-[#5a7a65]">
-                  Updated {new Date(lastUpdated).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
-            </div>
+        <div className="flex flex-col pb-24">
+          {/* Live odds section */}
+          <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+            <h2 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">🎰 Live Outright Odds</h2>
+            {oddsUpdatedAt && (
+              <span className="text-[10px] text-[#5a7a65]">
+                {new Date(oddsUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
           </div>
 
-          {bookieData.length === 0 ? (
-            <div className="px-4 py-8 text-center text-[#5a7a65] text-sm">
-              Beat the Bookie data loads when the round begins
+          {oddsLoading ? (
+            <div className="px-4 py-6 text-center text-[#5a7a65] text-sm">Loading odds…</div>
+          ) : odds.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[#5a7a65] text-sm">
+              Odds unavailable — check back once the tournament begins
             </div>
           ) : (
+            <div className="border-b border-[#1a3d2b]">
+              {/* Column headers */}
+              <div className="flex items-center px-4 py-1.5 bg-[#0f2518]">
+                <span className="flex-1 text-[10px] font-bold text-[#5a7a65] uppercase tracking-wide">Player</span>
+                <span className="w-16 text-right text-[10px] font-bold text-[#5a7a65] uppercase tracking-wide">Odds</span>
+                <span className="w-20 text-right text-[10px] font-bold text-[#5a7a65] uppercase tracking-wide">Bookmaker</span>
+              </div>
+              {odds.map((player, i) => (
+                <div key={player.name} className="flex items-center px-4 py-2.5 border-b border-[#1a3d2b]">
+                  <span className="w-6 text-[10px] text-[#5a7a65]">{i + 1}</span>
+                  <span className="flex-1 text-sm text-white font-medium truncate">{player.name}</span>
+                  <span className="w-16 text-right font-score font-bold text-[#c9a227] text-sm">{player.fractional}</span>
+                  <span className="w-20 text-right text-[10px] text-[#5a7a65] truncate">{player.bookmaker}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Performance vs odds section */}
+          {bookieData.length > 0 && (
             <>
-              {/* Outperforming */}
+              <div className="px-4 pt-4 pb-2">
+                <h2 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">📊 Round {round} Performance vs Odds</h2>
+              </div>
+
               {outperforming.length > 0 && (
                 <div>
                   <div className="px-4 py-2 bg-[#1a3d2b]">
-                    <span className="text-[11px] font-bold text-[#8ab89a] uppercase tracking-wide">
-                      Outperforming Odds
-                    </span>
+                    <span className="text-[11px] font-bold text-[#8ab89a] uppercase tracking-wide">Outperforming</span>
                   </div>
                   {outperforming.map((player) => (
                     <BookieRow key={player.id} player={player} />
@@ -121,13 +168,10 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
                 </div>
               )}
 
-              {/* Underperforming */}
               {underperforming.length > 0 && (
                 <div>
                   <div className="px-4 py-2 bg-[#1a3d2b]">
-                    <span className="text-[11px] font-bold text-[#8ab89a] uppercase tracking-wide">
-                      Underperforming Odds
-                    </span>
+                    <span className="text-[11px] font-bold text-[#8ab89a] uppercase tracking-wide">Underperforming</span>
                   </div>
                   {underperforming.map((player) => (
                     <BookieRow key={player.id} player={player} />
@@ -138,10 +182,9 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
           )}
 
           {/* Disclaimer */}
-          <p className="px-4 py-3 text-[10px] text-[#5a7a65] text-center border-t border-[#1a3d2b]">
-            Beat the Bookie is for entertainment and game strategy only. It shows how players are
-            performing relative to pre-tournament predictions. Fantasy Flagstick does not offer
-            betting services and does not earn commission from any gambling activity.
+          <p className="px-4 py-3 text-[10px] text-[#5a7a65] text-center border-t border-[#1a3d2b] mt-2">
+            Odds shown for entertainment and game strategy only. Fantasy Flagstick does not offer
+            betting services or earn commission from any gambling activity.
           </p>
         </div>
       )}
