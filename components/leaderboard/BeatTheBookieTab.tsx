@@ -202,14 +202,23 @@ function CourseTab({ holes }: { holes: Hole[] }) {
           <button
             key={h.number}
             onClick={() => setSelected(h.number)}
-            className={`flex-shrink-0 w-9 h-9 rounded-lg text-sm font-bold transition-all
+            className={`flex-shrink-0 flex flex-col items-center gap-0.5 w-12 py-1.5 rounded-xl transition-all
               ${selected === h.number
-                ? 'bg-[#c9a227] text-[#0a1a10]'
+                ? 'bg-[#c9a227]'
                 : AMEN_CORNER.has(h.number)
-                ? 'bg-[#3d1a00] text-[#e8a020] border border-[#7a3d00]'
-                : 'bg-[#1a3d2b] text-[#8ab89a]'}`}
+                ? 'bg-[#3d1a00] border border-[#7a3d00]'
+                : 'bg-[#1a3d2b]'}`}
           >
-            {h.number}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/holes/hole-${h.number}-icon.svg`}
+              alt={`Hole ${h.number}`}
+              className={`w-7 h-7 ${selected === h.number ? 'brightness-0' : ''}`}
+            />
+            <span className={`text-[9px] font-bold leading-none
+              ${selected === h.number ? 'text-[#0a1a10]' : AMEN_CORNER.has(h.number) ? 'text-[#e8a020]' : 'text-[#8ab89a]'}`}>
+              {h.number}
+            </span>
           </button>
         ))}
       </div>
@@ -229,9 +238,10 @@ function CourseTab({ holes }: { holes: Hole[] }) {
           <div className={`px-4 py-3 border-t border-[#1a3d2b] ${parBg}`}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-3">
-                <div className="flex flex-col items-center justify-center w-10 h-10 rounded-xl bg-black/30 border border-white/10">
-                  <span className="text-[9px] text-[#5a7a65] uppercase leading-none">H</span>
-                  <span className="text-lg font-bold text-white leading-tight">{hole.number}</span>
+                <div className="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-black/30 border border-white/10">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/holes/hole-${hole.number}-icon.svg`} alt="" className="w-8 h-8" />
+                  <span className="text-[8px] text-[#5a7a65] leading-none mt-0.5">{hole.number}</span>
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-[#c9a227] leading-tight">{hole.name || `Hole ${hole.number}`}</h2>
