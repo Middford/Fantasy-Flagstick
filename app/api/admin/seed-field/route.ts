@@ -49,7 +49,7 @@ function compositePrice(
     composite = top10Score
   }
 
-  return Math.max(4, Math.min(16, Math.round(4 + composite * 12)))
+  return Math.max(4, Math.min(15, Math.round(4 + composite * 13)))
 }
 
 export async function POST(req: Request) {

@@ -38,7 +38,7 @@ export default function ChipsPanel({
       >
         <span className="text-xl">🏆</span>
         <span className="text-[10px] font-bold text-[#c9a227] whitespace-nowrap">Sponsor</span>
-        <span className="text-[9px] text-[#8ab89a] whitespace-nowrap">+£36m</span>
+        <span className="text-[9px] text-[#8ab89a] whitespace-nowrap">+£20m</span>
         {sponsorshipUsed && <span className="text-[9px] text-[#5a7a65]">Used R{chips.sponsorship_round}</span>}
       </button>
 

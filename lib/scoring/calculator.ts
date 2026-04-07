@@ -85,7 +85,7 @@ export function calculateRemainingBudget(
   remaining: number
 } {
   const BASE_BUDGET = 180
-  const SPONSORSHIP_BONUS = 36  // +£36m = 2 extra average picks (£10m each + headroom)
+  const SPONSORSHIP_BONUS = 20  // +£20m = 2 extra value picks, keeps avg at £11.1m/hole
 
   const hasSponsorshipThisRound =
     chips.sponsorship_used && chips.sponsorship_round === round
