@@ -98,7 +98,7 @@ export default async function HomePage() {
           {/* Centre: FF wordmark */}
           <div className="flex items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/ff-logo.png" alt="F" className="h-20 w-20 object-cover object-left" />
+            <img src="/ff-logo.png" alt="F" className="h-20 w-20 object-cover object-left -translate-y-4" />
             <span className="text-[#c9a227] font-bold text-lg leading-none -ml-8">antasy Flagstick</span>
           </div>
           {/* Right: Live pill */}
