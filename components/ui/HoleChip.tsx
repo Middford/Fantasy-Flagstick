@@ -57,7 +57,9 @@ export default function HoleChip({
       className={`
         relative flex flex-col items-center justify-center gap-0.5
         w-full h-[72px] rounded-lg font-bold transition-all px-0.5
-        ${isSelected
+        ${isLocked
+          ? 'bg-[#06100a] border border-[#1a3d2b]'
+          : isSelected
           ? 'bg-[#1a3d2b] border-2 border-[#c9a227] scale-105'
           : hasPick
           ? 'bg-[#1a3d2b] border border-[#3a6b4a]'
@@ -65,7 +67,6 @@ export default function HoleChip({
         ${isPostman ? '!border-[#d63030] !border-2' : ''}
         ${isMulligan ? '!border-[#20a090] !border-2' : ''}
         ${isLockingSoon ? '!border-[#e8a020] !border-2 animate-pulse' : ''}
-        ${isLocked ? 'opacity-70' : ''}
       `}
       aria-label={`Hole ${holeNumber}`}
     >
@@ -85,11 +86,13 @@ export default function HoleChip({
       )}
 
       {/* Hole number */}
-      <span className="text-[#5a7a65] text-[9px] leading-none">{holeNumber}</span>
+      <span className={`text-[9px] leading-none ${isLocked ? 'text-[#3a5a45]' : 'text-[#5a7a65]'}`}>
+        {holeNumber}
+      </span>
 
       {/* Player name — surname only, truncated */}
       {surname ? (
-        <span className="text-white text-[8px] leading-tight w-full text-center truncate px-0.5">
+        <span className={`text-[8px] leading-tight w-full text-center truncate px-0.5 ${isLocked ? 'text-[#5a7a65]' : 'text-white'}`}>
           {surname}
         </span>
       ) : (
