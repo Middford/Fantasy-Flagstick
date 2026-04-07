@@ -92,11 +92,8 @@ export default async function HomePage() {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0a1a10] border-b border-[#1a3d2b] px-4 py-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/masters-logo.jpg" alt="The Masters" className="h-8 w-auto rounded" />
-            <h1 className="text-lg font-bold text-[#c9a227]">Fantasy Flagstick</h1>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/masters-logo.jpg" alt="The Masters" className="h-12 w-auto rounded" />
           <LivePill round={tournament.current_round} />
         </div>
         <p className="text-[#8ab89a] text-xs mt-0.5">
