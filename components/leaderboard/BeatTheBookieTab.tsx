@@ -23,7 +23,7 @@ function PerformanceIcon({ index }: { index: number }) {
 }
 
 export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes }: Props) {
-  const [tab, setTab] = useState<'drama' | 'bookie' | 'course'>('drama')
+  const [tab, setTab] = useState<'drama' | 'bookie' | 'course'>('course')
   const [bookieData, setBookieData] = useState<BeatTheBookie[]>([])
   const [dramaItems] = useState<DramaItem[]>([])
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
@@ -196,13 +196,13 @@ function CourseTab({ holes }: { holes: Hole[] }) {
 
   return (
     <div className="flex flex-col">
-      {/* Hole selector */}
-      <div className="flex gap-1.5 px-3 py-3 overflow-x-auto border-b border-[#1a3d2b]">
+      {/* Hole selector — 2 rows of 9, no scrolling */}
+      <div className="grid grid-cols-9 gap-1 px-2 py-2 border-b border-[#1a3d2b]">
         {sorted.map((h) => (
           <button
             key={h.number}
             onClick={() => setSelected(h.number)}
-            className={`flex-shrink-0 flex flex-col items-center gap-0.5 w-12 py-1.5 rounded-xl transition-all
+            className={`flex flex-col items-center gap-0 py-1 rounded-lg transition-all
               ${selected === h.number
                 ? 'bg-[#c9a227]'
                 : AMEN_CORNER.has(h.number)
@@ -213,9 +213,9 @@ function CourseTab({ holes }: { holes: Hole[] }) {
             <img
               src={`/holes/hole-${h.number}-icon.svg`}
               alt={`Hole ${h.number}`}
-              className={`w-7 h-7 ${selected === h.number ? 'brightness-0' : ''}`}
+              className={`w-6 h-6 ${selected === h.number ? 'brightness-0' : ''}`}
             />
-            <span className={`text-[9px] font-bold leading-none
+            <span className={`text-[8px] font-bold leading-tight
               ${selected === h.number ? 'text-[#0a1a10]' : AMEN_CORNER.has(h.number) ? 'text-[#e8a020]' : 'text-[#8ab89a]'}`}>
               {h.number}
             </span>
