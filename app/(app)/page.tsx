@@ -3,6 +3,7 @@ import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/
 import LivePill from '@/components/ui/LivePill'
 import DramaFeed from '@/components/leaderboard/DramaFeed'
 import BeatTheBookieTab from '@/components/leaderboard/BeatTheBookieTab'
+import CourseGuide from '@/components/course/CourseGuide'
 
 async function getActiveTournament() {
   // Use service client — tournaments table has RLS enabled with no public read policy
@@ -71,6 +72,13 @@ export default async function HomePage() {
     ? await getUserStats(supabase, userId, tournament.id, tournament.current_round, leagueId)
     : null
 
+  const svc = createServiceClient()
+  const { data: holes } = await svc
+    .from('holes')
+    .select('*')
+    .eq('tournament_id', tournament.id)
+    .order('number')
+
   const confirmedPicks = picks?.filter((p) => p.score_vs_par !== null) ?? []
   const totalScore = confirmedPicks.reduce((sum, p) => {
     const score = p.score_vs_par ?? 0
@@ -113,6 +121,9 @@ export default async function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* Course guide */}
+      {holes && holes.length > 0 && <CourseGuide holes={holes} />}
 
       {/* Tabs: Drama Feed | Beat the Bookie */}
       <BeatTheBookieTab

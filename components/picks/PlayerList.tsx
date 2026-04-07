@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import type { Player, HoleScore } from '@/lib/supabase/types'
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react'
 
@@ -98,7 +99,13 @@ export default function PlayerList({
             {/* Name + country */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-white truncate">{player.name}</span>
+                <Link
+                  href={`/player/${player.id}`}
+                  className="text-sm font-semibold text-white truncate hover:text-[#c9a227] transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {player.name}
+                </Link>
                 {isPostman && <span className="text-[10px] bg-[#d63030] rounded px-1 text-white">📮</span>}
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-[#8ab89a]">
