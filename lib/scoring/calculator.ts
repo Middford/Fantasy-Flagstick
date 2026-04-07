@@ -84,8 +84,8 @@ export function calculateRemainingBudget(
   spent: number
   remaining: number
 } {
-  const BASE_BUDGET = 100
-  const SPONSORSHIP_BONUS = 25
+  const BASE_BUDGET = 180
+  const SPONSORSHIP_BONUS = 36  // +£36m = 2 extra average picks (£10m each + headroom)
 
   const hasSponsorshipThisRound =
     chips.sponsorship_used && chips.sponsorship_round === round

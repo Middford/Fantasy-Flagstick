@@ -1,6 +1,14 @@
 // Fantasy Flagstick — Admin: Seed player field from DataGolf
 // Fetches pre-tournament pricing and upserts into players table
 // Protected by ADMIN_SECRET header
+//
+// Pricing algorithm (£4m–£16m range, avg ~£10m for £180m budget):
+//   composite = 0.60 × top10_score + 0.40 × log_odds_score
+//   price     = clamp( round(4 + composite × 12), 4, 16 )
+//
+//   top10_score    = DataGolf top-10 finish probability, normalised [0,1] across field
+//   log_odds_score = log(implied_prob from bookmaker win odds), normalised [0,1] across field
+//                    (falls back to 0 if outrights unavailable)
 
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -8,10 +16,40 @@ import { dataGolf } from '@/lib/datagolf/client'
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET
 
-function impliedProbToPrice(winDecimalOdds: number | undefined): number {
-  if (!winDecimalOdds || winDecimalOdds <= 1) return 8
-  const impliedProbPct = (1 / winDecimalOdds) * 100
-  return Math.min(20, Math.max(5, Math.round(impliedProbPct * 1.5 + 4)))
+/**
+ * Composite pricing from DataGolf top-10 prob (primary) + bookmaker implied prob (secondary).
+ * Both signals are normalised across the field so we get a compressed, fair price range.
+ *
+ * @param top10Prob  DataGolf probability of top-10 finish (0–1)
+ * @param top10Min   Field minimum top-10 prob
+ * @param top10Max   Field maximum top-10 prob
+ * @param logImplied log(1 / bookmaker_decimal_odds) — negative number, less negative = favourite
+ * @param logMin     Field minimum log implied prob (most negative = longest shot)
+ * @param logMax     Field maximum log implied prob (least negative = favourite)
+ * @param hasOdds    Whether bookmaker odds data is available
+ */
+function compositePrice(
+  top10Prob: number,
+  top10Min: number,
+  top10Max: number,
+  logImplied: number,
+  logMin: number,
+  logMax: number,
+  hasOdds: boolean,
+): number {
+  const top10Range = top10Max - top10Min || 1
+  const top10Score = (top10Prob - top10Min) / top10Range
+
+  let composite: number
+  if (hasOdds && logMax !== logMin) {
+    const logRange = logMax - logMin
+    const logScore = (logImplied - logMin) / logRange
+    composite = 0.60 * top10Score + 0.40 * logScore
+  } else {
+    composite = top10Score
+  }
+
+  return Math.max(4, Math.min(16, Math.round(4 + composite * 12)))
 }
 
 export async function POST(req: Request) {
@@ -33,29 +71,66 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'No active tournament found' }, { status: 404 })
   }
 
-  // Fetch DataGolf data in parallel
-  const [fieldData, predsData] = await Promise.all([
+  // Fetch DataGolf data in parallel — outrights is best-effort
+  const [fieldData, predsData, outrightResult] = await Promise.allSettled([
     dataGolf.getFieldUpdates(),
     dataGolf.getPreTournamentPredictions(),
+    dataGolf.getOutrights(),
   ])
 
-  // Build a price lookup map from predictions: dg_id and player_name → price
-  const priceMap = new Map<string, number>()
-  for (const pred of Object.values(predsData.baseline)) {
-    const price = impliedProbToPrice(pred.win)
-    priceMap.set(pred.player_name.toLowerCase(), price)
-    priceMap.set(String(pred.dg_id), price)
+  if (fieldData.status === 'rejected') {
+    return NextResponse.json({ error: 'Failed to fetch DataGolf field data' }, { status: 502 })
   }
+  if (predsData.status === 'rejected') {
+    return NextResponse.json({ error: 'Failed to fetch DataGolf predictions' }, { status: 502 })
+  }
+
+  const field = fieldData.value
+  const preds = predsData.value
+  const outrights = outrightResult.status === 'fulfilled' ? outrightResult.value : null
+
+  // ── Build lookup maps ──────────────────────────────────────────────────────
+
+  // top_10 probability by dg_id
+  const top10Map = new Map<number, number>()
+  for (const pred of Object.values(preds.baseline)) {
+    if (pred.top_10 != null) top10Map.set(pred.dg_id, pred.top_10)
+  }
+
+  // bookmaker log implied probability by dg_id  (log(1/decimal_odds))
+  const logOddsMap = new Map<number, number>()
+  if (outrights) {
+    for (const entry of outrights.data) {
+      if (entry.win != null && entry.win > 1) {
+        logOddsMap.set(entry.dg_id, Math.log(1 / entry.win))
+      }
+    }
+  }
+
+  // ── Compute field-wide min/max for normalisation ───────────────────────────
+  const top10Values = [...top10Map.values()]
+  const top10Min = Math.min(...top10Values, 0.03)
+  const top10Max = Math.max(...top10Values, 0.04)
+
+  const logValues = [...logOddsMap.values()]
+  const logMin = logValues.length ? Math.min(...logValues) : 0
+  const logMax = logValues.length ? Math.max(...logValues) : 0
+  const hasOdds = logValues.length > 0
+
+  // ── Default price for players with no prediction data ─────────────────────
+  const DEFAULT_PRICE = 6
 
   let updated = 0
   let created = 0
   const errors: string[] = []
 
-  for (const fp of fieldData.field) {
-    const price =
-      priceMap.get(String(fp.dg_id)) ??
-      priceMap.get(fp.player_name.toLowerCase()) ??
-      8
+  for (const fp of field.field) {
+    const top10Prob = top10Map.get(fp.dg_id) ?? top10Min  // Assume worst if missing
+    const logImplied = logOddsMap.get(fp.dg_id) ?? logMin  // Assume longest shot if missing
+
+    const price = top10Map.has(fp.dg_id)
+      ? compositePrice(top10Prob, top10Min, top10Max, logImplied, logMin, logMax, hasOdds)
+      : DEFAULT_PRICE
 
     // DataGolf returns names as "Last, First" (e.g. "Scheffler, Scottie")
     // Convert to: name_full "Scottie Scheffler", shortName "S. Scheffler"
@@ -125,7 +200,9 @@ export async function POST(req: Request) {
     tournament: tournament.name,
     updated,
     created,
-    fieldSize: fieldData.field.length,
+    fieldSize: field.field.length,
+    oddsAvailable: hasOdds,
+    pricingRange: { min: 4, max: 16, avg: 10 },
     errors: errors.slice(0, 10),
   })
 }
