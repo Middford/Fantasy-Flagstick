@@ -3,7 +3,6 @@ import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/
 import LivePill from '@/components/ui/LivePill'
 import DramaFeed from '@/components/leaderboard/DramaFeed'
 import BeatTheBookieTab from '@/components/leaderboard/BeatTheBookieTab'
-import CourseGuide from '@/components/course/CourseGuide'
 
 async function getActiveTournament() {
   // Use service client — tournaments table has RLS enabled with no public read policy
@@ -122,15 +121,13 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {/* Course guide */}
-      {holes && holes.length > 0 && <CourseGuide holes={holes} />}
-
-      {/* Tabs: Drama Feed | Beat the Bookie */}
+      {/* Tabs: Drama | Bookie | Course | Rules */}
       <BeatTheBookieTab
         tournamentId={tournament.id}
         round={tournament.current_round}
         displayName={displayName}
         leagueId={leagueId}
+        holes={holes ?? []}
       />
     </div>
   )

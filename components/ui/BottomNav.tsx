@@ -2,14 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Flag, Trophy, Star, User } from 'lucide-react'
+import { Home, Flag, Trophy, User } from 'lucide-react'
 
 const tabs = [
-  { href: '/',          label: 'Home',    Icon: Home },
-  { href: '/picks',     label: 'Picks',   Icon: Flag },
-  { href: '/league',    label: 'League',  Icon: Trophy },
-  { href: '/cabinet',   label: 'Cabinet', Icon: Star },
-  { href: '/profile',   label: 'Profile', Icon: User },
+  { href: '/',         label: 'Home',    Icon: Home },
+  { href: '/picks',    label: 'Picks',   Icon: Flag },
+  { href: '/league',   label: 'League',  Icon: Trophy },
+  { href: '/profile',  label: 'Profile', Icon: User },
 ]
 
 export default function BottomNav() {
