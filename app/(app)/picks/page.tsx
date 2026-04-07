@@ -1,16 +1,36 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { Suspense } from 'react'
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
+import { dataGolf } from '@/lib/datagolf/client'
 import PickScreen from '@/components/picks/PickScreen'
+import RoundTabs from '@/components/picks/RoundTabs'
 
-export default async function PicksPage() {
+// Convert DataGolf "H:MM" time string (Augusta EDT, UTC-4) to BST display
+function formatEdtToBst(timeStr: string | undefined): string | null {
+  if (!timeStr) return null
+  const [h, m] = timeStr.split(':').map(Number)
+  if (isNaN(h) || isNaN(m)) return null
+  // EDT is UTC-4, BST is UTC+1, so BST = EDT + 5 hours
+  const bstH = (h + 5) % 24
+  return `${String(bstH).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+export default async function PicksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ round?: string }>
+}) {
   const { userId } = await auth()
   if (!userId) redirect('/sign-in')
 
+  // Service client for public data (tournaments, holes, players) — bypasses RLS
+  const db = createServiceClient()
+  // Auth client for user-specific data (picks, chips, league membership)
   const supabase = await createServerSupabaseClient()
 
   // Get active tournament
-  const { data: tournament } = await supabase
+  const { data: tournament } = await db
     .from('tournaments')
     .select('*')
     .eq('active', true)
@@ -25,15 +45,29 @@ export default async function PicksPage() {
     )
   }
 
+  // Determine which rounds are available to pick
+  // Always allow current round + next round (if within tournament)
+  const availableRounds = [
+    tournament.current_round,
+    tournament.current_round + 1,
+  ].filter((r) => r >= 1 && r <= 4)
+
+  // Resolve selected round from URL param (default to current_round)
+  const { round: roundParam } = await searchParams
+  const requestedRound = roundParam ? parseInt(roundParam, 10) : tournament.current_round
+  const selectedRound = availableRounds.includes(requestedRound)
+    ? requestedRound
+    : tournament.current_round
+
   // Get holes
-  const { data: holes } = await supabase
+  const { data: holes } = await db
     .from('holes')
     .select('*')
     .eq('tournament_id', tournament.id)
     .order('number')
 
-  // Get players
-  const { data: players } = await supabase
+  // Get players ordered by price for the selected round
+  const { data: players } = await db
     .from('players')
     .select('*')
     .eq('tournament_id', tournament.id)
@@ -49,8 +83,8 @@ export default async function PicksPage() {
     .single()
 
   if (!membership) {
-    // Auto-join global league
-    const { data: globalLeague } = await supabase
+    // Auto-join global league — use service client so this works even if JWT template isn't configured
+    const { data: globalLeague } = await db
       .from('leagues')
       .select('id')
       .eq('tournament_id', tournament.id)
@@ -58,11 +92,11 @@ export default async function PicksPage() {
       .single()
 
     if (globalLeague) {
-      await supabase.from('league_members').insert({
+      await db.from('league_members').insert({
         league_id: globalLeague.id,
         user_id: userId,
       })
-      await supabase.from('chips').insert({
+      await db.from('chips').insert({
         league_id: globalLeague.id,
         user_id: userId,
         tournament_id: tournament.id,
@@ -72,14 +106,14 @@ export default async function PicksPage() {
 
   const leagueId = membership?.league_id ?? null
 
-  // Get existing picks
+  // Get existing picks for selected round
   const { data: picks } = leagueId
     ? await supabase
         .from('picks')
         .select('*')
         .eq('user_id', userId)
         .eq('league_id', leagueId)
-        .eq('round', tournament.current_round)
+        .eq('round', selectedRound)
     : { data: [] }
 
   // Get chips
@@ -101,6 +135,27 @@ export default async function PicksPage() {
     )
   }
 
+  // Fetch tee times from DataGolf (cached 5 min by Next.js fetch)
+  // Plain object (not Map) so it's serialisable for the client component
+  const teeTimes: Record<string, { r1: string | null; r2: string | null }> = {}
+  try {
+    const fieldData = await dataGolf.getFieldUpdates()
+    for (const fp of fieldData.field) {
+      // DataGolf name format: "Last, First" → normalise to "First Last" for lookup
+      const parts = fp.player_name.replace(/,/g, '').split(' ').filter(Boolean)
+      const normalised =
+        parts.length >= 2
+          ? `${parts[parts.length - 1]} ${parts.slice(0, parts.length - 1).join(' ')}`
+          : fp.player_name
+      teeTimes[normalised.toLowerCase()] = {
+        r1: formatEdtToBst(fp.r1_teetime),
+        r2: formatEdtToBst(fp.r2_teetime),
+      }
+    }
+  } catch {
+    // Tee times are best-effort — don't block picks if DataGolf is down
+  }
+
   return (
     <div className="flex flex-col">
       {/* Header */}
@@ -109,7 +164,7 @@ export default async function PicksPage() {
           <div>
             <h1 className="text-lg font-bold text-[#c9a227]">Your Picks</h1>
             <p className="text-[#8ab89a] text-xs">
-              Round {tournament.current_round} · {tournament.course_short}
+              Round {selectedRound} · {tournament.course_short}
             </p>
           </div>
           <div className="text-right">
@@ -120,15 +175,27 @@ export default async function PicksPage() {
         </div>
       </header>
 
+      {/* Round tabs — only show if more than one round available */}
+      {availableRounds.length > 1 && (
+        <Suspense>
+          <RoundTabs
+            currentRound={tournament.current_round}
+            selectedRound={selectedRound}
+            availableRounds={availableRounds}
+          />
+        </Suspense>
+      )}
+
       <PickScreen
         userId={userId}
         leagueId={leagueId}
         tournamentId={tournament.id}
-        round={tournament.current_round}
+        round={selectedRound}
         initialHoles={holes}
         initialPlayers={players}
         initialPicks={picks ?? []}
         initialChips={chips ?? null}
+        teeTimes={teeTimes}
       />
     </div>
   )

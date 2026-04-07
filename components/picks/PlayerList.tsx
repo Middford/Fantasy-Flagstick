@@ -3,6 +3,8 @@
 import type { Player, HoleScore } from '@/lib/supabase/types'
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react'
 
+interface TeeTime { r1: string | null; r2: string | null }
+
 interface PlayerListProps {
   players: Player[]
   holeNumber: number
@@ -13,6 +15,7 @@ interface PlayerListProps {
   postmanPlayerId: string | null
   completedHoleScores: Map<string, boolean>  // playerId → has completed hole N-1
   beatTheBookieMap?: Map<string, { index: number; direction: string }>
+  teeTimes?: Record<string, TeeTime>    // player name_full.toLowerCase() → tee times
   onPick: (player: Player) => void
 }
 
@@ -37,6 +40,7 @@ export default function PlayerList({
   postmanPlayerId,
   completedHoleScores,
   beatTheBookieMap,
+  teeTimes,
   onPick,
 }: PlayerListProps) {
   // Sort: available → picked → locked out → can't afford
@@ -85,8 +89,14 @@ export default function PlayerList({
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-[#8ab89a]">
                 <span>{player.country}</span>
-                {player.holes_completed > 0 && (
+                {player.holes_completed > 0 ? (
                   <span>· Thru {player.holes_completed}</span>
+                ) : (
+                  (() => {
+                    const pt = teeTimes?.[player.name_full.toLowerCase()]
+                    const raw = round === 2 ? (pt?.r2 ?? pt?.r1) : pt?.r1
+                    return raw ? <span>· Tee {raw}</span> : null
+                  })()
                 )}
                 {lockedOut && (
                   <span className="text-[#e8a020]">Locked out</span>

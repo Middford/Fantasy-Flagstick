@@ -63,6 +63,8 @@ export type Database = {
           price_r4: number | null
           current_price: number
           price_direction: 'up' | 'down' | 'flat'
+          tee_time_r1: string | null
+          tee_time_r2: string | null
           current_round_score: number
           holes_completed: number
           total_score: number

@@ -10,6 +10,8 @@ import ChipsPanel from './ChipsPanel'
 import HoleGrid from './HoleGrid'
 import PlayerList from './PlayerList'
 
+interface TeeTime { r1: string | null; r2: string | null }
+
 interface PickScreenProps {
   userId: string
   leagueId: string
@@ -19,6 +21,7 @@ interface PickScreenProps {
   initialPlayers: Player[]
   initialPicks: Pick[]
   initialChips: Chips | null
+  teeTimes?: Record<string, TeeTime>
 }
 
 export default function PickScreen({
@@ -30,6 +33,7 @@ export default function PickScreen({
   initialPlayers,
   initialPicks,
   initialChips,
+  teeTimes,
 }: PickScreenProps) {
   const supabase = createClient()
   const [players, setPlayers] = useState<Player[]>(initialPlayers)
@@ -212,6 +216,7 @@ export default function PickScreen({
         currentPickPlayerId={currentPick?.player_id ?? null}
         postmanPlayerId={postmanPlayerId}
         completedHoleScores={lockedOutMap}
+        teeTimes={teeTimes}
         onPick={handlePick}
       />
     </div>

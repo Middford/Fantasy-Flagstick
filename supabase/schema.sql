@@ -70,6 +70,9 @@ create table players (
   price_r4 int,
   current_price int not null default 10,
   price_direction text default 'flat', -- up | down | flat
+  -- Tee times (set pre-tournament from DataGolf)
+  tee_time_r1 timestamptz,
+  tee_time_r2 timestamptz,
   -- Current round stats
   current_round_score int default 0,
   holes_completed int default 0,
