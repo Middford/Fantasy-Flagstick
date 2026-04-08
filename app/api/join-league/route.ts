@@ -58,18 +58,26 @@ export async function POST(req: Request) {
   }
 
   // Join league with real name
-  await supabase.from('league_members').insert({
+  const { error: memberError } = await supabase.from('league_members').insert({
     league_id: league.id,
     user_id: userId,
     display_name: displayName,
   })
 
+  if (memberError) {
+    return NextResponse.json({ error: 'Failed to join league' }, { status: 500 })
+  }
+
   // Create chips row
-  await supabase.from('chips').insert({
+  const { error: chipsError } = await supabase.from('chips').insert({
     league_id: league.id,
     user_id: userId,
     tournament_id: tournamentId,
   })
+
+  if (chipsError) {
+    return NextResponse.json({ error: 'Failed to create chips row' }, { status: 500 })
+  }
 
   return NextResponse.json({ league })
 }
