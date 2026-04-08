@@ -40,7 +40,7 @@ export default async function LeaguePage() {
   type LeagueRow = { id: string; name: string; code: string; type: string; tournament_id: string }
 
   const leagues = (memberships ?? [])
-    .map((m) => m.leagues as LeagueRow | null)
+    .map((m) => m.leagues as unknown as LeagueRow | null)
     .filter((l): l is LeagueRow => l?.tournament_id === tournament.id)
 
   // Fetch member counts for all leagues in one query
