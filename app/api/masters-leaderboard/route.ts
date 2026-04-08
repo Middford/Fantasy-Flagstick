@@ -41,6 +41,13 @@ export async function GET() {
     const eventName = mastersEvent.name
     const eventStatus = mastersEvent.status?.type?.state ?? 'pre'
 
+    // Pre-tournament: event listed but no play yet — return empty so UI shows placeholder
+    if (eventStatus === 'pre') {
+      return NextResponse.json({ entries: [], eventName, status: 'pre' }, {
+        headers: { 'Cache-Control': 'no-store' },
+      })
+    }
+
     // Parse competitors — ESPN returns them sorted by position
     const raw = competitors.map((c) => {
       const scoreStr = c.score ?? 'E'
