@@ -15,23 +15,106 @@ const AUGUSTA_PARS: Record<number, number> = {
 interface EspnProfile {
   displayName?: string
   dateOfBirth?: string
-  birthPlace?: { city?: string; country?: string }
+  birthPlace?: { city?: string; country?: string; state?: string }
   college?: string
   displayHeight?: string
   displayWeight?: string
   debutYear?: number
+  turnedPro?: number
+  age?: number
 }
 
 async function fetchEspnProfile(espnId: string): Promise<EspnProfile | null> {
   try {
     const res = await fetch(
       `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/athletes/${espnId}?lang=en&region=gb`,
-      { next: { revalidate: 3600 } }
+      { next: { revalidate: 86400 } }
     )
     if (!res.ok) return null
     return res.json()
   } catch {
     return null
+  }
+}
+
+// ── ESPN season / career stats ────────────────────────────────────────────────
+
+interface EspnSeasonStats {
+  wins: number
+  topTens: number
+  earningsRaw: number
+  earningsDisplay: string
+  fedexPoints: number | null
+  fedexRank: number | null
+  events: number
+  cutsMade: number
+  scoringAvg: number | null
+  birdiesPerRound: number | null
+  gir: number | null          // greens in regulation %
+  drivingDist: number | null  // yards per drive
+  drivingAcc: number | null   // driving accuracy %
+}
+
+interface CareerTotals {
+  wins: number
+  topTens: number
+  earnings: number
+  events: number
+  seasons: number             // how many seasons successfully fetched
+}
+
+async function fetchEspnSeasonStats(espnId: string, year: number): Promise<EspnSeasonStats | null> {
+  try {
+    const res = await fetch(
+      `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/seasons/${year}/types/2/athletes/${espnId}/statistics/0?lang=en&region=gb`,
+      { next: { revalidate: year < new Date().getFullYear() ? 86400 : 3600 } }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    const cats: { name: string; stats: { name: string; value: number; displayValue: string; rank?: number }[] }[] =
+      data?.splits?.categories ?? []
+    const gen = cats.find((c) => c.name === 'general')
+    if (!gen) return null
+    const find = (name: string) => gen.stats.find((s) => s.name === name)
+    const wins = find('wins')?.value ?? 0
+    const earningsRaw = find('amount')?.value ?? find('officialAmount')?.value ?? 0
+    if (wins === 0 && earningsRaw === 0) return null  // season with no activity
+    return {
+      wins,
+      topTens: find('topTenFinishes')?.value ?? 0,
+      earningsRaw,
+      earningsDisplay: find('amount')?.displayValue ?? find('officialAmount')?.displayValue ?? '$0',
+      fedexPoints: find('cupPoints')?.value ?? null,
+      fedexRank: find('cupPoints')?.rank ?? null,
+      events: find('tournamentsPlayed')?.value ?? 0,
+      cutsMade: find('cutsMade')?.value ?? 0,
+      scoringAvg: find('scoringAverage')?.value ?? null,
+      birdiesPerRound: find('birdiesPerRound')?.value ?? null,
+      gir: find('greensInRegPct')?.value ?? null,
+      drivingDist: find('yardsPerDrive')?.value ?? null,
+      drivingAcc: find('driveAccuracyPct')?.value ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchCareerTotals(espnId: string): Promise<CareerTotals | null> {
+  const currentYear = new Date().getFullYear()
+  // Fetch last 7 seasons in parallel; earlier seasons gracefully return null
+  const years = Array.from({ length: 7 }, (_, i) => currentYear - i)
+  const results = await Promise.allSettled(years.map((y) => fetchEspnSeasonStats(espnId, y)))
+  const seasons = results
+    .filter((r): r is PromiseFulfilledResult<EspnSeasonStats | null> => r.status === 'fulfilled')
+    .map((r) => r.value)
+    .filter((s): s is EspnSeasonStats => s !== null)
+  if (seasons.length === 0) return null
+  return {
+    wins: seasons.reduce((s, r) => s + r.wins, 0),
+    topTens: seasons.reduce((s, r) => s + r.topTens, 0),
+    earnings: seasons.reduce((s, r) => s + r.earningsRaw, 0),
+    events: seasons.reduce((s, r) => s + r.events, 0),
+    seasons: seasons.length,
   }
 }
 
@@ -265,12 +348,16 @@ export default async function PlayerProfilePage({
     holes.forEach((h) => { parMap[h.number] = h.par })
   }
 
-  // Fetch ESPN profile, DataGolf stats, SG splits, Augusta history, and tournament field in parallel
-  const [espnProfile, dgStats, sgSplits, mastersHistory, { data: fieldPlayers }] = await Promise.all([
+  const currentYear = new Date().getFullYear()
+
+  // Fetch all data in parallel
+  const [espnProfile, dgStats, sgSplits, mastersHistory, currentSeasonStats, careerTotals, { data: fieldPlayers }] = await Promise.all([
     player.espn_id ? fetchEspnProfile(player.espn_id) : Promise.resolve(null),
     player.datagolf_id ? fetchDataGolfStats(player.datagolf_id) : Promise.resolve(null),
     player.datagolf_id ? fetchSgSplits(player.datagolf_id) : Promise.resolve(null),
     player.datagolf_id ? fetchMastersHistory(player.datagolf_id) : Promise.resolve([]),
+    player.espn_id ? fetchEspnSeasonStats(player.espn_id, currentYear) : Promise.resolve(null),
+    player.espn_id ? fetchCareerTotals(player.espn_id) : Promise.resolve(null),
     db.from('players')
       .select('id, total_score, holes_completed, status')
       .eq('tournament_id', player.tournament_id)
@@ -297,7 +384,8 @@ export default async function PlayerProfilePage({
     ? `https://a.espncdn.com/i/headshots/golf/players/full/${player.espn_id}.png`
     : null
 
-  const age = espnProfile?.dateOfBirth ? ageFromDob(espnProfile.dateOfBirth) : null
+  const age = espnProfile?.age ?? (espnProfile?.dateOfBirth ? ageFromDob(espnProfile.dateOfBirth) : null)
+  const turnedPro = espnProfile?.turnedPro ?? null
   const flag = countryFlags[player.country] ?? '🌍'
 
   const priceChange = player.current_price - player.price_r1
@@ -486,36 +574,138 @@ export default async function PlayerProfilePage({
       </div>
 
       {/* Bio */}
-      {espnProfile && (
+      {(espnProfile || player.world_ranking) && (
         <div className="px-4 py-4 border-b border-[#1a3d2b]">
           <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">Biography</h3>
           <div className="space-y-2.5">
+            {player.world_ranking && (
+              <div className="flex justify-between text-sm">
+                <span className="text-[#5a7a65]">World Ranking</span>
+                <span className="text-white font-medium">#{player.world_ranking}</span>
+              </div>
+            )}
+            {turnedPro && (
+              <div className="flex justify-between text-sm">
+                <span className="text-[#5a7a65]">Turned Pro</span>
+                <span className="text-white font-medium">{turnedPro}</span>
+              </div>
+            )}
             {age && (
               <div className="flex justify-between text-sm">
                 <span className="text-[#5a7a65]">Age</span>
                 <span className="text-white font-medium">{age}</span>
               </div>
             )}
-            {espnProfile.birthPlace?.city && (
+            {espnProfile?.birthPlace?.city && (
               <div className="flex justify-between text-sm">
                 <span className="text-[#5a7a65]">Birthplace</span>
                 <span className="text-white font-medium text-right">
-                  {[espnProfile.birthPlace.city, espnProfile.birthPlace.country].filter(Boolean).join(', ')}
+                  {[espnProfile.birthPlace.city, espnProfile.birthPlace.state, espnProfile.birthPlace.country]
+                    .filter(Boolean).join(', ')}
                 </span>
               </div>
             )}
-            {espnProfile.college && (
+            {espnProfile?.college && (
               <div className="flex justify-between text-sm">
                 <span className="text-[#5a7a65]">College</span>
                 <span className="text-white font-medium text-right">{espnProfile.college}</span>
               </div>
             )}
-            {espnProfile.displayHeight && (
+            {espnProfile?.displayHeight && (
               <div className="flex justify-between text-sm">
                 <span className="text-[#5a7a65]">Height</span>
                 <span className="text-white font-medium">{espnProfile.displayHeight}</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Career Stats */}
+      {careerTotals && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b]">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">PGA Tour Career</h3>
+            <span className="text-[9px] text-[#3d5c40]">last {careerTotals.seasons} seasons · ESPN</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+              <div className="text-2xl font-score font-bold text-[#c9a227]">{careerTotals.wins}</div>
+              <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Wins</div>
+            </div>
+            <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+              <div className="text-2xl font-score font-bold text-white">{careerTotals.topTens}</div>
+              <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Top-10s</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+              <div className="text-base font-score font-bold text-[#4adb7a]">
+                ${(careerTotals.earnings / 1_000_000).toFixed(1)}M
+              </div>
+              <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Earnings</div>
+            </div>
+            <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+              <div className="text-base font-score font-bold text-white">{careerTotals.events}</div>
+              <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Events</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Current Season Stats */}
+      {currentSeasonStats && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b]">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">{currentYear} Season</h3>
+            {currentSeasonStats.fedexRank != null && (
+              <span className="text-[10px] font-bold text-[#c9a227]">FedEx #{currentSeasonStats.fedexRank}</span>
+            )}
+          </div>
+          <div className="grid grid-cols-4 gap-2 mb-2">
+            {([
+              { label: 'Wins', value: String(currentSeasonStats.wins) },
+              { label: 'Top-10', value: String(currentSeasonStats.topTens) },
+              { label: 'Events', value: String(currentSeasonStats.events) },
+              { label: 'Cuts', value: String(currentSeasonStats.cutsMade) },
+            ] as const).map(({ label, value }) => (
+              <div key={label} className="bg-[#1a3d2b] rounded-xl p-2.5 text-center">
+                <div className="text-base font-score font-bold text-white">{value}</div>
+                <div className="text-[9px] text-[#8ab89a] uppercase tracking-wide mt-0.5">{label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="bg-[#1a3d2b] rounded-xl p-2.5 text-center">
+              <div className="text-sm font-score font-bold text-[#4adb7a]">{currentSeasonStats.earningsDisplay}</div>
+              <div className="text-[9px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Earnings</div>
+            </div>
+            <div className="bg-[#1a3d2b] rounded-xl p-2.5 text-center">
+              <div className="text-sm font-score font-bold text-white">
+                {currentSeasonStats.scoringAvg != null ? currentSeasonStats.scoringAvg.toFixed(1) : '—'}
+              </div>
+              <div className="text-[9px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Scoring Avg</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-[#1a3d2b] rounded-xl p-2.5 text-center">
+              <div className="text-sm font-score font-bold text-white">
+                {currentSeasonStats.gir != null ? currentSeasonStats.gir.toFixed(1) + '%' : '—'}
+              </div>
+              <div className="text-[9px] text-[#8ab89a] uppercase tracking-wide mt-0.5">GIR</div>
+            </div>
+            <div className="bg-[#1a3d2b] rounded-xl p-2.5 text-center">
+              <div className="text-sm font-score font-bold text-white">
+                {currentSeasonStats.drivingDist != null ? Math.round(currentSeasonStats.drivingDist) + ' yd' : '—'}
+              </div>
+              <div className="text-[9px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Drive Dist</div>
+            </div>
+            <div className="bg-[#1a3d2b] rounded-xl p-2.5 text-center">
+              <div className="text-sm font-score font-bold text-white">
+                {currentSeasonStats.drivingAcc != null ? currentSeasonStats.drivingAcc.toFixed(0) + '%' : '—'}
+              </div>
+              <div className="text-[9px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Drive Acc</div>
+            </div>
           </div>
         </div>
       )}
