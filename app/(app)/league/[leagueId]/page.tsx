@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import LeagueLeaderboard from '@/components/leaderboard/LeagueLeaderboard'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -15,22 +15,16 @@ export default async function LeagueDetailPage({
 
   const { leagueId } = await params
   const db = createServiceClient()
-  const supabase = await createServerSupabaseClient()
 
-  const [{ data: tournament }, { data: league }] = await Promise.all([
+  const [{ data: tournament }, { data: league }, { data: membership }] = await Promise.all([
     db.from('tournaments').select('*').eq('active', true).single(),
     db.from('leagues').select('id, name, code, type, tournament_id').eq('id', leagueId).single(),
+    // Use service client — SELECT RLS on league_members is open (using true).
+    // userId is verified by Clerk auth() above; no JWT template dependency.
+    db.from('league_members').select('id').eq('league_id', leagueId).eq('user_id', userId).single(),
   ])
 
   if (!tournament || !league) notFound()
-
-  // Verify user is a member — use RLS-backed client so this can't be spoofed
-  const { data: membership } = await supabase
-    .from('league_members')
-    .select('id')
-    .eq('league_id', leagueId)
-    .eq('user_id', userId)
-    .single()
 
   if (!membership) redirect('/league')
 
