@@ -7,6 +7,7 @@ interface ChipsPanelProps {
   chips: Chips | null
   round: number
   players: Player[]
+  firstPickLocked: boolean
   onUseSponsorshipDeal: () => void
   onSelectPostman: (playerId: string) => void
   onUseMulligan: () => void
@@ -22,6 +23,7 @@ interface PendingChip {
 export default function ChipsPanel({
   chips,
   round,
+  firstPickLocked,
   onUseSponsorshipDeal,
   onSelectPostman,
   onUseMulligan,
@@ -32,12 +34,16 @@ export default function ChipsPanel({
 
   const postmanKey = `postman_r${round}_player_id` as keyof Chips
   const postmanUsed = !!chips[postmanKey]
-  const sponsorshipUsed = chips.sponsorship_used
   const mulliganUsed = chips.mulligan_used
+
+  // Sponsor chip state
+  const sponsorActiveThisRound = chips.sponsorship_used && chips.sponsorship_round === round
+  const sponsorUsedElsewhere = chips.sponsorship_used && chips.sponsorship_round !== round
+  // Frozen = lock has triggered (or chip used for another round entirely)
+  const sponsorFrozen = firstPickLocked || sponsorUsedElsewhere
 
   function confirmChip() {
     if (!pending) return
-    if (pending.type === 'sponsorship') onUseSponsorshipDeal()
     if (pending.type === 'postman') onSelectPostman('')
     if (pending.type === 'mulligan') onUseMulligan()
     setPending(null)
@@ -46,24 +52,34 @@ export default function ChipsPanel({
   return (
     <>
       <div className="flex gap-2 px-4 py-3 border-b border-[#1a3d2b] overflow-x-auto">
-        {/* Sponsorship Deal */}
+        {/* Sponsorship Deal — toggleable until first pick locks */}
         <button
-          onClick={!sponsorshipUsed ? () => setPending({
-            type: 'sponsorship',
-            label: 'Sponsorship Deal',
-            emoji: '🏆',
-            description: 'Adds £20m to your budget for this round. Use it to afford a top player you\'d otherwise miss.',
-          }) : undefined}
-          disabled={sponsorshipUsed}
+          onClick={sponsorFrozen ? undefined : onUseSponsorshipDeal}
+          disabled={sponsorFrozen}
           className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition-all
-            ${sponsorshipUsed
+            ${sponsorFrozen
               ? 'border-[#2d5c3f] bg-[#0a1a10] opacity-50 cursor-not-allowed'
-              : 'border-[#2a7a3a] bg-[#1a3d2b] active:scale-95'}`}
+              : sponsorActiveThisRound
+                ? 'border-[#4adb7a] bg-[#0f2518] active:scale-95 ring-1 ring-[#4adb7a]/30'
+                : 'border-[#2a7a3a] bg-[#1a3d2b] active:scale-95'}`}
         >
-          <span className="text-xl">🏆</span>
-          <span className="text-[10px] font-bold text-[#c9a227] whitespace-nowrap">Sponsor</span>
+          <span className="text-xl">{sponsorFrozen && !sponsorActiveThisRound ? '🔒' : '🏆'}</span>
+          <span className={`text-[10px] font-bold whitespace-nowrap ${sponsorActiveThisRound ? 'text-[#4adb7a]' : 'text-[#c9a227]'}`}>
+            Sponsor
+          </span>
           <span className="text-[9px] text-[#8ab89a] whitespace-nowrap">+£20m</span>
-          {sponsorshipUsed && <span className="text-[9px] text-[#5a7a65]">Used R{chips.sponsorship_round}</span>}
+          {sponsorActiveThisRound && !firstPickLocked && (
+            <span className="text-[9px] text-[#4adb7a]">ON · tap off</span>
+          )}
+          {sponsorActiveThisRound && firstPickLocked && (
+            <span className="text-[9px] text-[#4adb7a]">Active R{round}</span>
+          )}
+          {!sponsorActiveThisRound && sponsorUsedElsewhere && (
+            <span className="text-[9px] text-[#5a7a65]">Used R{chips.sponsorship_round}</span>
+          )}
+          {!sponsorActiveThisRound && !sponsorUsedElsewhere && firstPickLocked && (
+            <span className="text-[9px] text-[#5a7a65]">Locked off</span>
+          )}
         </button>
 
         {/* Postman */}
@@ -129,7 +145,7 @@ export default function ChipsPanel({
             <div className="mt-4 px-4 py-3 rounded-xl bg-[#3d2200] border border-[#7a4500] flex items-start gap-2.5">
               <span className="text-lg flex-shrink-0">⚠️</span>
               <p className="text-sm text-[#e8a020] leading-snug font-medium">
-                This chip cannot be undone once activated. You only get one per tournament.
+                This cannot be undone. You only get one per tournament.
               </p>
             </div>
 

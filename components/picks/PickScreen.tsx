@@ -49,6 +49,9 @@ export default function PickScreen({
   const postmanKey = `postman_r${round}_player_id` as keyof Chips
   const postmanPlayerId = chips ? (chips[postmanKey] as string | null) : null
 
+  // Is any pick for this round locked? (freezes sponsor chip state)
+  const firstPickLocked = picks.some((p) => p.round === round && p.is_locked)
+
   // Budget calculation
   const roundPicks = picks.filter((p) => p.round === round)
   const { remaining, totalBudget } = chips
@@ -138,13 +141,17 @@ export default function PickScreen({
   }
 
   async function handleSponsorshipDeal() {
-    if (!chips || chips.sponsorship_used) return
+    if (!chips) return
     const res = await fetch('/api/chips', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'sponsorship', round, chipsId: chips.id }),
+      body: JSON.stringify({ action: 'sponsorship_toggle', round, chipsId: chips.id, leagueId }),
     })
-    if (res.ok) setChips({ ...chips, sponsorship_used: true, sponsorship_round: round })
+    if (res.status === 409) return // Locked in or used for another round — UI should prevent this
+    if (res.ok) {
+      const data = await res.json()
+      setChips({ ...chips, sponsorship_used: data.sponsorship_used, sponsorship_round: data.sponsorship_round ?? null })
+    }
   }
 
   async function handleSelectPostman(playerId: string) {
@@ -194,6 +201,7 @@ export default function PickScreen({
         chips={chips}
         round={round}
         players={players}
+        firstPickLocked={firstPickLocked}
         onUseSponsorshipDeal={handleSponsorshipDeal}
         onSelectPostman={() => setPostmanPickerOpen(true)}
         onUseMulligan={handleMulligan}
