@@ -61,6 +61,103 @@ async function fetchDataGolfStats(dgId: string): Promise<DataGolfStats | null> {
   }
 }
 
+interface SgSplits {
+  sg_putt: number | null
+  sg_arg: number | null
+  sg_app: number | null
+  sg_ott: number | null
+  sg_t2g: number | null
+}
+
+async function fetchSgSplits(dgId: string): Promise<SgSplits | null> {
+  if (!process.env.DATAGOLF_API_KEY) return null
+  try {
+    const stats = await dataGolf.getLiveTournamentStats(
+      'sg_putt,sg_arg,sg_app,sg_ott,sg_t2g',
+      'event_cumulative'
+    )
+    const entry = stats.data.find((p) => String(p.dg_id) === dgId)
+    if (!entry) return null
+    return {
+      sg_putt: entry.sg_putt ?? null,
+      sg_arg: entry.sg_arg ?? null,
+      sg_app: entry.sg_app ?? null,
+      sg_ott: entry.sg_ott ?? null,
+      sg_t2g: entry.sg_t2g ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+interface MastersYearResult {
+  year: number
+  rounds: (number | null)[]  // R1–R4 scores vs par
+  finish: string | null
+}
+
+// Discover the Masters event_id from DataGolf's historical event list (cached 24 h)
+async function getMastersEventId(): Promise<string | null> {
+  if (!process.env.DATAGOLF_API_KEY) return null
+  try {
+    const list = await dataGolf.getHistoricalEventList('pga')
+    // Find Masters (exclude Senior events)
+    const masters = list.events.find((e) => {
+      const name = e.event_name.toLowerCase()
+      return name.includes('masters') && !name.includes('senior') && !name.includes('super')
+    })
+    return masters?.event_id ?? null
+  } catch {
+    return null
+  }
+}
+
+async function fetchMastersHistory(dgId: string): Promise<MastersYearResult[]> {
+  if (!process.env.DATAGOLF_API_KEY) return []
+  try {
+    const eventId = await getMastersEventId()
+    if (!eventId) return []
+
+    const currentYear = new Date().getFullYear()
+    const years = [currentYear - 2, currentYear - 1, currentYear]
+
+    const results = await Promise.allSettled(
+      years.map((y) => dataGolf.getHistoricalRounds('pga', eventId, y))
+    )
+
+    const history: MastersYearResult[] = []
+
+    results.forEach((result, i) => {
+      const year = years[i]
+      if (result.status !== 'fulfilled') return
+      const rounds = result.value.data.filter((r) => String(r.dg_id) === dgId)
+      if (rounds.length === 0) return
+
+      // Build R1–R4 vs-par from score field (score is raw strokes; augusta par=72)
+      const AUGUSTA_PAR = 72
+      const roundScores: (number | null)[] = [null, null, null, null]
+      rounds.forEach((r) => {
+        const rn = (r.round_num ?? 0) - 1
+        if (rn >= 0 && rn < 4 && r.score != null) {
+          roundScores[rn] = r.score - AUGUSTA_PAR
+        }
+      })
+
+      const anyScore = roundScores.some((s) => s !== null)
+      if (!anyScore) return
+
+      // fin_text is on any round row
+      const finish = rounds[rounds.length - 1]?.fin_text ?? null
+
+      history.push({ year, rounds: roundScores, finish })
+    })
+
+    return history.sort((a, b) => b.year - a.year)
+  } catch {
+    return []
+  }
+}
+
 function ageFromDob(dob: string): number | null {
   try {
     const birth = new Date(dob)
@@ -171,10 +268,12 @@ export default async function PlayerProfilePage({
     holes.forEach((h) => { parMap[h.number] = h.par })
   }
 
-  // Fetch ESPN profile, DataGolf stats, and tournament field in parallel
-  const [espnProfile, dgStats, { data: fieldPlayers }] = await Promise.all([
+  // Fetch ESPN profile, DataGolf stats, SG splits, Augusta history, and tournament field in parallel
+  const [espnProfile, dgStats, sgSplits, mastersHistory, { data: fieldPlayers }] = await Promise.all([
     player.espn_id ? fetchEspnProfile(player.espn_id) : Promise.resolve(null),
     player.datagolf_id ? fetchDataGolfStats(player.datagolf_id) : Promise.resolve(null),
+    player.datagolf_id ? fetchSgSplits(player.datagolf_id) : Promise.resolve(null),
+    player.datagolf_id ? fetchMastersHistory(player.datagolf_id) : Promise.resolve([]),
     db.from('players')
       .select('id, total_score, holes_completed, status')
       .eq('tournament_id', player.tournament_id)
@@ -443,6 +542,109 @@ export default async function PlayerProfilePage({
           ))}
         </div>
       </div>
+
+      {/* Strokes Gained — current tournament cumulative */}
+      {sgSplits && Object.values(sgSplits).some((v) => v !== null) && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b]">
+          <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">
+            Strokes Gained · This Tournament
+          </h3>
+          <div className="space-y-2.5">
+            {([
+              { key: 'sg_ott', label: 'Off the Tee' },
+              { key: 'sg_app', label: 'Approach' },
+              { key: 'sg_arg', label: 'Around Green' },
+              { key: 'sg_putt', label: 'Putting' },
+              { key: 'sg_t2g', label: 'Tee to Green' },
+            ] as const).map(({ key, label }) => {
+              const val = sgSplits[key]
+              if (val === null) return null
+              const rounded = Math.round(val * 100) / 100
+              const pct = Math.min(Math.abs(val) / 3, 1) * 50 // max bar at ±3 SG
+              return (
+                <div key={key}>
+                  <div className="flex justify-between items-baseline mb-0.5">
+                    <span className="text-xs text-[#8ab89a]">{label}</span>
+                    <span className={`text-xs font-bold font-score ${val > 0 ? 'text-[#4adb7a]' : val < 0 ? 'text-[#e05555]' : 'text-[#8ab89a]'}`}>
+                      {val > 0 ? '+' : ''}{rounded.toFixed(2)}
+                    </span>
+                  </div>
+                  {/* Bar: centred at 50%, grows left (neg) or right (pos) */}
+                  <div className="relative h-1.5 bg-[#1a3d2b] rounded-full overflow-hidden">
+                    <div
+                      className={`absolute top-0 h-full rounded-full ${val >= 0 ? 'bg-[#4adb7a]' : 'bg-[#e05555]'}`}
+                      style={{
+                        left: val >= 0 ? '50%' : `${50 - pct}%`,
+                        width: `${pct}%`,
+                      }}
+                    />
+                    {/* Centre tick */}
+                    <div className="absolute top-0 left-1/2 w-px h-full bg-[#2d5c3f]" />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-[9px] text-[#3d5c40] mt-3 text-center">DataGolf · cumulative this tournament</p>
+        </div>
+      )}
+
+      {/* Augusta National history */}
+      {mastersHistory.length > 0 && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b]">
+          <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">
+            Masters History
+          </h3>
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left text-[10px] font-bold text-[#5a7a65] pb-2 w-12">Year</th>
+                <th className="text-center text-[10px] font-bold text-[#5a7a65] pb-2">R1</th>
+                <th className="text-center text-[10px] font-bold text-[#5a7a65] pb-2">R2</th>
+                <th className="text-center text-[10px] font-bold text-[#5a7a65] pb-2">R3</th>
+                <th className="text-center text-[10px] font-bold text-[#5a7a65] pb-2">R4</th>
+                <th className="text-right text-[10px] font-bold text-[#5a7a65] pb-2 pr-1">Fin</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#1a3d2b]">
+              {mastersHistory.map((yr) => {
+                const total = yr.rounds.reduce<number | null>((sum, s) => {
+                  if (s === null) return sum
+                  return (sum ?? 0) + s
+                }, null)
+                return (
+                  <tr key={yr.year}>
+                    <td className="py-2 text-xs font-bold text-[#c9a227]">{yr.year}</td>
+                    {yr.rounds.map((s, i) => (
+                      <td key={i} className="text-center py-2">
+                        {s !== null ? (
+                          <span className={`text-xs font-score font-bold ${scoreColour(s)}`}>
+                            {scoreLabel(s)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-[#3d5c40]">—</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="text-right py-2 pr-1">
+                      {yr.finish ? (
+                        <span className="text-xs font-bold text-white">{yr.finish}</span>
+                      ) : total !== null ? (
+                        <span className={`text-xs font-score font-bold ${scoreColour(total)}`}>
+                          {scoreLabel(total)}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-[#3d5c40]">—</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <p className="text-[9px] text-[#3d5c40] mt-2 text-center">DataGolf historical · scores vs par</p>
+        </div>
+      )}
 
       <div className="h-24" />
     </div>
