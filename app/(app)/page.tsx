@@ -129,12 +129,13 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {/* Tabs: Drama | Bookie | Course | Rules */}
+      {/* Tabs: Leaderboard | Bookie | Course */}
       <BeatTheBookieTab
         tournamentId={tournament.id}
         round={tournament.current_round}
         displayName={displayName}
         leagueId={leagueId}
+        userId={userId}
         holes={holes ?? []}
       />
     </div>

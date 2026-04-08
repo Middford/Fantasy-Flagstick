@@ -9,6 +9,7 @@ export default function SignUpPage() {
           <p className="text-[#8ab89a] mt-1">Join the Masters 2026 — Round 1 is Thursday</p>
         </div>
         <SignUp
+          forceRedirectUrl="/onboarding"
           appearance={{
             variables: {
               colorPrimary: '#c9a227',

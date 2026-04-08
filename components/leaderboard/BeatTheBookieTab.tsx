@@ -5,15 +5,31 @@ import { createClient } from '@/lib/supabase/client'
 import { useEffect } from 'react'
 import type { BeatTheBookie, Hole } from '@/lib/supabase/types'
 import { getPerformanceColour } from '@/lib/pricing/engine'
-import DramaFeed from './DramaFeed'
-import type { DramaItem } from './DramaFeed'
+
 
 interface Props {
   tournamentId: string
   round: number
   displayName: string
   leagueId: string | null
+  userId: string
   holes?: Hole[]
+}
+
+interface MastersEntry {
+  position: string
+  name: string
+  total: string
+  thru: string
+  status: 'active' | 'cut' | 'wd' | 'dq'
+}
+
+interface FantasyEntry {
+  userId: string
+  displayName: string
+  totalScore: number
+  holesCompleted: number
+  position: number
 }
 
 interface OddsPlayer {
@@ -30,14 +46,59 @@ function PerformanceIcon({ index }: { index: number }) {
   return <span>📉</span>
 }
 
-export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes }: Props) {
-  const [tab, setTab] = useState<'drama' | 'bookie' | 'course'>('course')
+export default function BeatTheBookieTab({ tournamentId, round, leagueId, userId, holes }: Props) {
+  const [tab, setTab] = useState<'leaderboard' | 'bookie' | 'course'>('leaderboard')
   const [bookieData, setBookieData] = useState<BeatTheBookie[]>([])
-  const [dramaItems] = useState<DramaItem[]>([])
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+
   const [odds, setOdds] = useState<OddsPlayer[]>([])
   const [oddsLoading, setOddsLoading] = useState(false)
   const [oddsUpdatedAt, setOddsUpdatedAt] = useState<string | null>(null)
+  const [mastersEntries, setMastersEntries] = useState<MastersEntry[]>([])
+  const [mastersLoading, setMastersLoading] = useState(false)
+  const [mastersStatus, setMastersStatus] = useState<string>('pre')
+  const [fantasyEntries, setFantasyEntries] = useState<FantasyEntry[]>([])
+  const [fantasyLoading, setFantasyLoading] = useState(false)
+
+  useEffect(() => {
+    if (tab !== 'leaderboard') return
+
+    async function fetchMasters() {
+      setMastersLoading(true)
+      try {
+        const res = await fetch('/api/masters-leaderboard')
+        if (res.ok) {
+          const json = await res.json()
+          setMastersEntries(json.entries ?? [])
+          setMastersStatus(json.status ?? 'pre')
+        }
+      } finally {
+        setMastersLoading(false)
+      }
+    }
+
+    async function fetchFantasy() {
+      if (!leagueId) return
+      setFantasyLoading(true)
+      try {
+        const res = await fetch(`/api/leaderboard?leagueId=${leagueId}&round=${round}`)
+        if (res.ok) {
+          const json = await res.json()
+          setFantasyEntries(json.entries ?? [])
+        }
+      } finally {
+        setFantasyLoading(false)
+      }
+    }
+
+    fetchMasters()
+    fetchFantasy()
+
+    const interval = setInterval(() => {
+      fetchMasters()
+      fetchFantasy()
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [tab, leagueId, round]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (tab !== 'bookie') return
@@ -54,7 +115,7 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
 
       if (data) {
         setBookieData(data as BeatTheBookie[])
-        if (data[0]?.updated_at) setLastUpdated(data[0].updated_at)
+        void data[0]?.updated_at // used for display elsewhere if needed
       }
     }
 
@@ -96,7 +157,7 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
     <div className="flex flex-col">
       {/* Tab bar */}
       <div className="flex border-b border-[#1a3d2b]">
-        {(['drama', 'bookie', 'course'] as const).map((t) => (
+        {(['leaderboard', 'bookie', 'course'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,12 +166,96 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, holes 
                 ? 'text-[#c9a227] border-b-2 border-[#c9a227]'
                 : 'text-[#5a7a65]'}`}
           >
-            {t === 'drama' ? '⚡ Drama' : t === 'bookie' ? '📈 Bookie' : '🗺 Course'}
+            {t === 'leaderboard' ? '🏆 Leaderboard' : t === 'bookie' ? '📈 Bookie' : '🗺 Course'}
           </button>
         ))}
       </div>
 
-      {tab === 'drama' && <DramaFeed items={dramaItems} />}
+      {tab === 'leaderboard' && (
+        <div className="flex flex-col pb-24">
+          {/* Masters real leaderboard */}
+          <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+            <h2 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">⛳ The Masters</h2>
+            {mastersStatus === 'pre' && (
+              <span className="text-[10px] text-[#5a7a65]">Starts Thu 10 Apr</span>
+            )}
+          </div>
+          {mastersLoading && mastersEntries.length === 0 ? (
+            <div className="px-4 py-4 text-center text-[#5a7a65] text-sm">Loading…</div>
+          ) : mastersEntries.length === 0 ? (
+            <div className="px-4 py-4 text-center text-[#5a7a65] text-sm">Leaderboard available once play begins</div>
+          ) : (
+            <div className="border-b border-[#1a3d2b]">
+              {/* Header row */}
+              <div className="flex items-center gap-2 px-4 py-1.5 bg-[#0f2518]">
+                <span className="w-8 text-[10px] text-[#5a7a65]">Pos</span>
+                <span className="flex-1 text-[10px] text-[#5a7a65]">Player</span>
+                <span className="w-10 text-right text-[10px] text-[#5a7a65]">Total</span>
+                <span className="w-8 text-right text-[10px] text-[#5a7a65]">Thru</span>
+              </div>
+              {mastersEntries.slice(0, 30).map((entry, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center gap-2 px-4 py-2.5 border-b border-[#1a3d2b]
+                    ${entry.status !== 'active' ? 'opacity-50' : ''}`}
+                >
+                  <span className="w-8 text-[11px] text-[#8ab89a] flex-shrink-0">{entry.position}</span>
+                  <span className="flex-1 text-sm text-white font-medium truncate">{entry.name}</span>
+                  <span className={`w-10 text-right font-score text-sm font-bold flex-shrink-0
+                    ${entry.status !== 'active' ? 'text-[#5a7a65]'
+                    : entry.total.startsWith('-') ? 'text-[#4adb7a]'
+                    : entry.total === 'E' ? 'text-white'
+                    : 'text-[#e05555]'}`}>
+                    {entry.total}
+                  </span>
+                  <span className="w-8 text-right text-[11px] text-[#5a7a65] flex-shrink-0">{entry.thru}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Fantasy leaderboard */}
+          <div className="px-4 pt-4 pb-2">
+            <h2 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">🃏 Your League · Round {round}</h2>
+          </div>
+          {!leagueId ? (
+            <div className="px-4 py-4 text-center text-[#5a7a65] text-sm">Join a league to see standings</div>
+          ) : fantasyLoading && fantasyEntries.length === 0 ? (
+            <div className="px-4 py-4 text-center text-[#5a7a65] text-sm">Loading…</div>
+          ) : fantasyEntries.length === 0 ? (
+            <div className="px-4 py-4 text-center text-[#5a7a65] text-sm">Leaderboard updates as holes complete</div>
+          ) : (
+            <div className="divide-y divide-[#1a3d2b]">
+              {fantasyEntries.map((entry) => (
+                <div
+                  key={entry.userId}
+                  className={`flex items-center gap-3 px-4 py-3
+                    ${entry.userId === userId ? 'border-l-2 border-[#c9a227] bg-[#0f2518]' : ''}`}
+                >
+                  <span className="font-score text-sm text-[#8ab89a] w-5 text-center flex-shrink-0">
+                    {entry.position}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">
+                      {entry.displayName}
+                      {entry.userId === userId && (
+                        <span className="ml-1.5 text-[10px] text-[#c9a227]">You</span>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-[#5a7a65]">{entry.holesCompleted} holes</p>
+                  </div>
+                  <span className={`font-score text-base font-bold flex-shrink-0
+                    ${entry.totalScore < 0 ? 'text-[#4adb7a]'
+                    : entry.totalScore > 0 ? 'text-[#e05555]'
+                    : 'text-[#8ab89a]'}`}>
+                    {entry.totalScore === 0 ? 'E' : entry.totalScore > 0 ? `+${entry.totalScore}` : `${entry.totalScore}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'course' && <CourseTab holes={holes ?? []} />}
 
