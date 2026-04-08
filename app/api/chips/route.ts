@@ -13,6 +13,12 @@ const schema = z.discriminatedUnion('action', [
     round: z.number().int().min(1).max(4),
   }),
   z.object({
+    action: z.literal('sponsorship_toggle'),
+    chipsId: z.string().uuid(),
+    round: z.number().int().min(1).max(4),
+    leagueId: z.string().uuid(),
+  }),
+  z.object({
     action: z.literal('postman'),
     chipsId: z.string().uuid(),
     round: z.number().int().min(1).max(4),
@@ -47,6 +53,50 @@ export async function POST(req: Request) {
       .update({ sponsorship_used: true, sponsorship_round: parsed.data.round })
       .eq('id', parsed.data.chipsId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  if (parsed.data.action === 'sponsorship_toggle') {
+    // Reject if any pick is locked for this round (chip state frozen)
+    const { data: lockedPick } = await supabase
+      .from('picks')
+      .select('id')
+      .eq('league_id', parsed.data.leagueId)
+      .eq('user_id', userId)
+      .eq('round', parsed.data.round)
+      .eq('is_locked', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (lockedPick) {
+      return NextResponse.json({ error: 'Locked in' }, { status: 409 })
+    }
+
+    // Get current sponsorship state
+    const { data: currentChips } = await supabase
+      .from('chips')
+      .select('sponsorship_used, sponsorship_round')
+      .eq('id', parsed.data.chipsId)
+      .single()
+
+    if (!currentChips) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Guard: can't toggle if already used for a different round
+    if (currentChips.sponsorship_used && currentChips.sponsorship_round !== parsed.data.round) {
+      return NextResponse.json({ error: 'Already used for another round' }, { status: 409 })
+    }
+
+    const isActive = currentChips.sponsorship_used && currentChips.sponsorship_round === parsed.data.round
+    const update = isActive
+      ? { sponsorship_used: false, sponsorship_round: null as number | null }
+      : { sponsorship_used: true, sponsorship_round: parsed.data.round as number | null }
+
+    const { error } = await supabase
+      .from('chips')
+      .update(update)
+      .eq('id', parsed.data.chipsId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    return NextResponse.json({ ok: true, sponsorship_used: update.sponsorship_used, sponsorship_round: update.sponsorship_round })
   }
 
   if (parsed.data.action === 'postman') {
