@@ -133,7 +133,7 @@ export default function CreateJoinLeague({ tournamentId, userId }: Props) {
         </button>
 
         <button
-          onClick={() => router.push('/league')}
+          onClick={() => router.refresh()}
           className="w-full bg-[#c9a227] text-[#0a1a10] font-bold rounded-xl py-3.5 text-sm active:scale-95 transition-transform"
         >
           See the Leaderboard
