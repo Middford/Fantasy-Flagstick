@@ -1,11 +1,9 @@
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import LivePill from '@/components/ui/LivePill'
-import DramaFeed from '@/components/leaderboard/DramaFeed'
 import BeatTheBookieTab from '@/components/leaderboard/BeatTheBookieTab'
 
 async function getActiveTournament() {
-  // Use service client — tournaments table has RLS enabled with no public read policy
   const db = createServiceClient()
   const { data } = await db
     .from('tournaments')
@@ -15,45 +13,12 @@ async function getActiveTournament() {
   return data
 }
 
-async function getUserLeague(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  userId: string,
-  tournamentId: string
-) {
-  const { data: membership } = await supabase
-    .from('league_members')
-    .select('league_id, display_name, leagues(id, name, code, type)')
-    .eq('user_id', userId)
-    .eq('leagues.tournament_id', tournamentId)
-    .limit(1)
-    .single()
-  return membership
-}
-
-async function getUserStats(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  userId: string,
-  tournamentId: string,
-  round: number,
-  leagueId: string | null
-) {
-  if (!leagueId) return null
-  const { data } = await supabase
-    .from('picks')
-    .select('score_vs_par, is_postman, is_locked')
-    .eq('user_id', userId)
-    .eq('tournament_id', tournamentId)
-    .eq('round', round)
-    .eq('league_id', leagueId)
-  return data
-}
 
 export default async function HomePage() {
   const { userId } = await auth()
   if (!userId) return null
 
   const user = await currentUser()
-  const supabase = await createServerSupabaseClient()
   const tournament = await getActiveTournament()
 
   if (!tournament) {
@@ -65,13 +30,39 @@ export default async function HomePage() {
     )
   }
 
-  const membership = await getUserLeague(supabase, userId, tournament.id)
-  const leagueId = (membership?.leagues as unknown as { id: string } | null)?.id ?? null
-  const picks = leagueId
-    ? await getUserStats(supabase, userId, tournament.id, tournament.current_round, leagueId)
-    : null
-
+  // Get user's primary league for this tournament — two-step to avoid unreliable PostgREST join filter
   const svc = createServiceClient()
+  const { data: membership } = await svc
+    .from('league_members')
+    .select('league_id')
+    .eq('user_id', userId)
+    .limit(1)
+    .single()
+
+  // Verify the league belongs to the active tournament
+  let leagueId: string | null = null
+  if (membership?.league_id) {
+    const { data: league } = await svc
+      .from('leagues')
+      .select('id')
+      .eq('id', membership.league_id)
+      .eq('tournament_id', tournament.id)
+      .single()
+    leagueId = league?.id ?? null
+  }
+
+  const picks = leagueId
+    ? await (async () => {
+        const { data } = await svc
+          .from('picks')
+          .select('score_vs_par, is_postman, is_locked')
+          .eq('user_id', userId)
+          .eq('tournament_id', tournament.id)
+          .eq('round', tournament.current_round)
+          .eq('league_id', leagueId)
+        return data
+      })()
+    : null
   const { data: holes } = await svc
     .from('holes')
     .select('*')
