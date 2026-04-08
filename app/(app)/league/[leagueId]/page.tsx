@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
 import LeagueLeaderboard from '@/components/leaderboard/LeagueLeaderboard'
+import DeleteLeagueButton from '@/components/leaderboard/DeleteLeagueButton'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
@@ -18,7 +19,7 @@ export default async function LeagueDetailPage({
 
   const [{ data: tournament }, { data: league }, { data: membership }] = await Promise.all([
     db.from('tournaments').select('*').eq('active', true).single(),
-    db.from('leagues').select('id, name, code, type, tournament_id').eq('id', leagueId).single(),
+    db.from('leagues').select('id, name, code, type, tournament_id, created_by').eq('id', leagueId).single(),
     // Use service client — SELECT RLS on league_members is open (using true).
     // userId is verified by Clerk auth() above; no JWT template dependency.
     db.from('league_members').select('id').eq('league_id', leagueId).eq('user_id', userId).single(),
@@ -49,6 +50,10 @@ export default async function LeagueDetailPage({
         round={tournament.current_round}
         userId={userId}
       />
+
+      {league.created_by === userId && (
+        <DeleteLeagueButton leagueId={league.id} leagueName={league.name} />
+      )}
     </div>
   )
 }
