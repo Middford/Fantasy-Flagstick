@@ -52,18 +52,26 @@ export async function POST(req: Request) {
   }
 
   // Add creator as member with their real name
-  await supabase.from('league_members').insert({
+  const { error: memberError } = await supabase.from('league_members').insert({
     league_id: league.id,
     user_id: userId,
     display_name: displayName,
   })
 
+  if (memberError) {
+    return NextResponse.json({ error: 'Failed to add league member' }, { status: 500 })
+  }
+
   // Create chips row for creator
-  await supabase.from('chips').insert({
+  const { error: chipsError } = await supabase.from('chips').insert({
     league_id: league.id,
     user_id: userId,
     tournament_id: tournamentId,
   })
+
+  if (chipsError) {
+    return NextResponse.json({ error: 'Failed to create chips row' }, { status: 500 })
+  }
 
   return NextResponse.json({ league })
 }
