@@ -93,37 +93,47 @@ const SkillRatingsSchema = z.object({
 })
 
 // Live tournament stats — SG splits for the current event
+// Actual response: { course_name, event_name, last_updated, live_stats: [...], stat_display, stat_round }
+// Each entry: { course, dg_id, player_name (Last, F.), position, round, sg_app, sg_arg, sg_ott, sg_putt, sg_t2g, thru, total }
 const LiveTournamentStatsEntrySchema = z.object({
   player_name: z.string(),
   dg_id: z.number(),
+  position: z.string().optional().nullable(),
+  round: z.number().optional().nullable(),
+  thru: z.number().optional().nullable(),
+  total: z.number().optional().nullable(),
   sg_putt: z.number().optional().nullable(),
   sg_arg: z.number().optional().nullable(),
   sg_app: z.number().optional().nullable(),
   sg_ott: z.number().optional().nullable(),
   sg_t2g: z.number().optional().nullable(),
-  sg_total: z.number().optional().nullable(),
 }).passthrough()
 
 const LiveTournamentStatsSchema = z.object({
   event_name: z.string().optional(),
-  stat: z.string().optional(),
-  round: z.string().optional(),
+  course_name: z.string().optional(),
   last_updated: z.string().optional(),
-  data: z.array(LiveTournamentStatsEntrySchema),
+  stat_display: z.string().optional(),
+  stat_round: z.string().optional(),
+  // actual field is live_stats, not data
+  live_stats: z.array(LiveTournamentStatsEntrySchema).optional(),
+  // keep data as fallback in case API changes
+  data: z.array(LiveTournamentStatsEntrySchema).optional(),
 })
 
-// Historical event list
+// Historical event list — actual response is a flat array (not {events:[...]})
+// event_id is a number (e.g. 14 for Masters), not a string
 const HistoricalEventSchema = z.object({
-  event_id: z.string(),
+  event_id: z.number(),
   event_name: z.string(),
   calendar_year: z.number().optional(),
-  season: z.number().optional(),
+  tour: z.string().optional(),
+  sg_categories: z.string().optional(),
+  traditional_stats: z.string().optional(),
 })
 
-const HistoricalEventListSchema = z.object({
-  tour: z.string().optional(),
-  events: z.array(HistoricalEventSchema),
-})
+// The endpoint returns a plain array of events
+const HistoricalEventListSchema = z.array(HistoricalEventSchema)
 
 // Historical rounds — round-by-round scoring + SG splits
 const HistoricalRoundEntrySchema = z.object({
@@ -156,6 +166,7 @@ export type Outrights = z.infer<typeof OutrightsSchema>
 export type SkillRatings = z.infer<typeof SkillRatingsSchema>
 export type LiveTournamentStats = z.infer<typeof LiveTournamentStatsSchema>
 export type LiveTournamentStatsEntry = z.infer<typeof LiveTournamentStatsEntrySchema>
+export type HistoricalEvent = z.infer<typeof HistoricalEventSchema>
 export type HistoricalEventList = z.infer<typeof HistoricalEventListSchema>
 export type HistoricalRounds = z.infer<typeof HistoricalRoundsSchema>
 export type HistoricalRoundEntry = z.infer<typeof HistoricalRoundEntrySchema>
@@ -233,21 +244,23 @@ export const dataGolf = {
 
   /**
    * List of all historical events for a tour (used to discover event IDs).
+   * Response is a flat array of events. event_id is a number (e.g. 14 for Masters).
+   * Requires historical data subscription.
    * Cache: 24 hours.
    */
   getHistoricalEventList(tour = 'pga'): Promise<HistoricalEventList> {
-    return fetchDataGolf('historical-raw-data/event-list', { tour }, 86400)
+    return fetchDataGolf<HistoricalEventList>('historical-raw-data/event-list', { tour }, 86400)
   },
 
   /**
    * Round-by-round scoring and strokes-gained splits for a specific event+year.
-   * event_id: e.g. 'masters', 'the_open', 'us_open', 'pga_championship'
-   * year: 1983–2026
+   * event_id: numeric ID (e.g. 14 for Masters). year: 1983–2026.
+   * Requires historical data subscription.
    * Cache: 24 hours for past years (data never changes), 5 min for current year.
    */
-  getHistoricalRounds(tour: string, eventId: string, year: number): Promise<HistoricalRounds> {
+  getHistoricalRounds(tour: string, eventId: number, year: number): Promise<HistoricalRounds> {
     const currentYear = new Date().getFullYear()
     const revalidate = year < currentYear ? 86400 : 300
-    return fetchDataGolf('historical-raw-data/rounds', { tour, event_id: eventId, year: String(year) }, revalidate)
+    return fetchDataGolf('historical-raw-data/rounds', { tour, event_id: String(eventId), year: String(year) }, revalidate)
   },
 }

@@ -47,14 +47,18 @@ async function fetchDataGolfStats(dgId: string): Promise<DataGolfStats | null> {
   if (!process.env.DATAGOLF_API_KEY) return null
   try {
     const preds = await dataGolf.getInPlayPredictions()
+    // Only show win% if DataGolf is tracking a Masters event
+    const eventName = (preds.event_name ?? '').toLowerCase()
+    const isMasters = eventName.includes('masters')
     const entry = preds.data.find((p) => String(p.dg_id) === dgId)
     if (!entry) return null
     return {
-      currentPos: entry.current_pos ?? null,
-      winPct: entry.win != null ? Math.round(entry.win * 1000) / 10 : null,
-      makeCutPct: entry.make_cut != null ? Math.round(entry.make_cut * 1000) / 10 : null,
-      today: entry.today ?? null,
-      thru: entry.thru ?? null,
+      currentPos: isMasters ? (entry.current_pos ?? null) : null,
+      // win is a raw probability (0–1); multiply by 100 for percentage display
+      winPct: (isMasters && entry.win != null) ? Math.round(entry.win * 1000) / 10 : null,
+      makeCutPct: (isMasters && entry.make_cut != null) ? Math.round(entry.make_cut * 1000) / 10 : null,
+      today: isMasters ? (entry.today ?? null) : null,
+      thru: isMasters ? (entry.thru ?? null) : null,
     }
   } catch {
     return null
@@ -76,8 +80,15 @@ async function fetchSgSplits(dgId: string): Promise<SgSplits | null> {
       'sg_putt,sg_arg,sg_app,sg_ott,sg_t2g',
       'event_cumulative'
     )
-    const entry = stats.data.find((p) => String(p.dg_id) === dgId)
+    // Response uses live_stats (not data)
+    const entries = stats.live_stats ?? stats.data ?? []
+    const entry = entries.find((p) => String(p.dg_id) === dgId)
     if (!entry) return null
+    // Only return if at least one SG value is non-null (skip pre-tournament)
+    const hasSg = [entry.sg_putt, entry.sg_arg, entry.sg_app, entry.sg_ott, entry.sg_t2g].some(
+      (v) => v !== null && v !== undefined
+    )
+    if (!hasSg) return null
     return {
       sg_putt: entry.sg_putt ?? null,
       sg_arg: entry.sg_arg ?? null,
@@ -96,33 +107,19 @@ interface MastersYearResult {
   finish: string | null
 }
 
-// Discover the Masters event_id from DataGolf's historical event list (cached 24 h)
-async function getMastersEventId(): Promise<string | null> {
-  if (!process.env.DATAGOLF_API_KEY) return null
-  try {
-    const list = await dataGolf.getHistoricalEventList('pga')
-    // Find Masters (exclude Senior events)
-    const masters = list.events.find((e) => {
-      const name = e.event_name.toLowerCase()
-      return name.includes('masters') && !name.includes('senior') && !name.includes('super')
-    })
-    return masters?.event_id ?? null
-  } catch {
-    return null
-  }
-}
+// Masters event_id in DataGolf is consistently 14 across all years.
+// If needed, it can be discovered via getHistoricalEventList('pga') by finding
+// the event where event_name includes 'Masters' and tour === 'pga'.
+const MASTERS_DG_EVENT_ID = 14
 
 async function fetchMastersHistory(dgId: string): Promise<MastersYearResult[]> {
   if (!process.env.DATAGOLF_API_KEY) return []
   try {
-    const eventId = await getMastersEventId()
-    if (!eventId) return []
-
     const currentYear = new Date().getFullYear()
     const years = [currentYear - 2, currentYear - 1, currentYear]
 
     const results = await Promise.allSettled(
-      years.map((y) => dataGolf.getHistoricalRounds('pga', eventId, y))
+      years.map((y) => dataGolf.getHistoricalRounds('pga', MASTERS_DG_EVENT_ID, y))
     )
 
     const history: MastersYearResult[] = []
