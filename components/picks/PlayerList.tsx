@@ -1,7 +1,7 @@
 'use client'
 
-import Link from 'next/link'
-import type { Player, HoleScore } from '@/lib/supabase/types'
+import { useRouter } from 'next/navigation'
+import type { Player } from '@/lib/supabase/types'
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react'
 
 interface TeeTime { r1: string | null; r2: string | null }
@@ -44,6 +44,7 @@ export default function PlayerList({
   teeTimes,
   onPick,
 }: PlayerListProps) {
+  const router = useRouter()
   // Sort: availability groups first, then by tee time ascending, price descending as tiebreak
   const getTeeTime = (p: Player): string => {
     const pt = teeTimes?.[p.name_full.toLowerCase()]
@@ -92,20 +93,17 @@ export default function PlayerList({
         return (
           <div
             key={player.id}
-            className={`flex items-center gap-3 px-4 py-3 transition-colors
+            onClick={() => router.push(`/player/${player.id}`)}
+            className={`flex items-center gap-3 px-4 py-3 transition-colors cursor-pointer active:bg-[#1a3d2b]
               ${isPicked ? 'bg-[#1a3d2b] border-l-2 border-[#c9a227]' : ''}
               ${disabled ? 'opacity-50' : ''}`}
           >
             {/* Name + country */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <Link
-                  href={`/player/${player.id}`}
-                  className="text-sm font-semibold text-white truncate hover:text-[#c9a227] transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <span className="text-sm font-semibold text-white truncate">
                   {player.name}
-                </Link>
+                </span>
                 {isPostman && <span className="text-[10px] bg-[#d63030] rounded px-1 text-white">📮</span>}
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-[#8ab89a]">
@@ -154,7 +152,7 @@ export default function PlayerList({
 
             {/* Pick button */}
             <button
-              onClick={() => !disabled && onPick(player)}
+              onClick={(e) => { e.stopPropagation(); if (!disabled) onPick(player) }}
               disabled={disabled}
               className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all
                 ${isPicked

@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import type { HoleScore } from '@/lib/supabase/types'
+import { dataGolf } from '@/lib/datagolf/client'
 
 // Augusta pars — fallback if holes table not seeded
 const AUGUSTA_PARS: Record<number, number> = {
@@ -29,6 +30,32 @@ async function fetchEspnProfile(espnId: string): Promise<EspnProfile | null> {
     )
     if (!res.ok) return null
     return res.json()
+  } catch {
+    return null
+  }
+}
+
+interface DataGolfStats {
+  currentPos: string | null
+  winPct: number | null
+  makeCutPct: number | null
+  today: number | null
+  thru: number | null
+}
+
+async function fetchDataGolfStats(dgId: string): Promise<DataGolfStats | null> {
+  if (!process.env.DATAGOLF_API_KEY) return null
+  try {
+    const preds = await dataGolf.getInPlayPredictions()
+    const entry = preds.data.find((p) => String(p.dg_id) === dgId)
+    if (!entry) return null
+    return {
+      currentPos: entry.current_pos ?? null,
+      winPct: entry.win != null ? Math.round(entry.win * 1000) / 10 : null,
+      makeCutPct: entry.make_cut != null ? Math.round(entry.make_cut * 1000) / 10 : null,
+      today: entry.today ?? null,
+      thru: entry.thru ?? null,
+    }
   } catch {
     return null
   }
@@ -144,8 +171,32 @@ export default async function PlayerProfilePage({
     holes.forEach((h) => { parMap[h.number] = h.par })
   }
 
-  // ESPN profile for bio
-  const espnProfile = player.espn_id ? await fetchEspnProfile(player.espn_id) : null
+  // Fetch ESPN profile, DataGolf stats, and tournament field in parallel
+  const [espnProfile, dgStats, { data: fieldPlayers }] = await Promise.all([
+    player.espn_id ? fetchEspnProfile(player.espn_id) : Promise.resolve(null),
+    player.datagolf_id ? fetchDataGolfStats(player.datagolf_id) : Promise.resolve(null),
+    db.from('players')
+      .select('id, total_score, holes_completed, status')
+      .eq('tournament_id', player.tournament_id)
+      .in('status', ['active', 'cut', 'wd', 'dq'])
+      .order('total_score'),
+  ])
+
+  // Compute tournament position (DataGolf is authoritative; DB total_score as fallback)
+  const startedPlayers = (fieldPlayers ?? []).filter((p) => p.holes_completed > 0)
+  const tournamentPos = (() => {
+    if (player.holes_completed === 0) return null
+    if (dgStats?.currentPos) return dgStats.currentPos
+    let pos = 1
+    let tie = false
+    for (const p of startedPlayers) {
+      if (p.id === player.id) break
+      if (p.total_score < player.total_score) pos++
+      else if (p.total_score === player.total_score) tie = true
+    }
+    return tie ? `T${pos}` : String(pos)
+  })()
+
   const headshotUrl = player.espn_id
     ? `https://a.espncdn.com/i/headshots/golf/players/full/${player.espn_id}.png`
     : null
@@ -226,26 +277,54 @@ export default async function PlayerProfilePage({
       </div>
 
       {/* Quick stats */}
-      <div className="grid grid-cols-3 gap-3 px-4 py-4 border-b border-[#1a3d2b]">
+      <div className="grid grid-cols-4 gap-2 px-4 py-4 border-b border-[#1a3d2b]">
         <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
-          <div className={`text-2xl font-score font-bold ${scoreColour(player.total_score)}`}>
+          <div className="text-xl font-score font-bold text-white">
+            {tournamentPos ?? '—'}
+          </div>
+          <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Pos</div>
+        </div>
+        <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+          <div className={`text-xl font-score font-bold ${scoreColour(player.total_score)}`}>
             {scoreLabel(player.total_score)}
           </div>
           <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Total</div>
         </div>
         <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
-          <div className={`text-2xl font-score font-bold ${scoreColour(player.current_round_score)}`}>
+          <div className={`text-xl font-score font-bold ${scoreColour(player.current_round_score)}`}>
             {player.holes_completed > 0 ? scoreLabel(player.current_round_score) : '—'}
           </div>
           <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Today</div>
         </div>
         <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
-          <div className="text-2xl font-score font-bold text-white">
+          <div className="text-xl font-score font-bold text-white">
             {player.holes_completed > 0 ? player.holes_completed : '—'}
           </div>
-          <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Holes</div>
+          <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Thru</div>
         </div>
       </div>
+
+      {/* DataGolf win probabilities */}
+      {dgStats && (dgStats.winPct !== null || dgStats.makeCutPct !== null) && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b]">
+          <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">Win Probability</h3>
+          <div className="grid grid-cols-2 gap-3">
+            {dgStats.winPct !== null && (
+              <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+                <div className="text-2xl font-score font-bold text-[#c9a227]">{dgStats.winPct}%</div>
+                <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Win</div>
+              </div>
+            )}
+            {dgStats.makeCutPct !== null && (
+              <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+                <div className="text-2xl font-score font-bold text-[#4adb7a]">{dgStats.makeCutPct}%</div>
+                <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">Make Cut</div>
+              </div>
+            )}
+          </div>
+          <p className="text-[9px] text-[#3d5c40] mt-2 text-center">DataGolf live model · updated every 5 min</p>
+        </div>
+      )}
 
       {/* Official Scorecard — vertical (one row per hole) */}
       <div className="border-b border-[#1a3d2b]">
