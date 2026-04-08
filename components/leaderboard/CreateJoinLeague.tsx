@@ -16,6 +16,7 @@ export default function CreateJoinLeague({ tournamentId, userId }: Props) {
   const [joinCode, setJoinCode] = useState('')
   const [createdCode, setCreatedCode] = useState('')
   const [createdName, setCreatedName] = useState('')
+  const [createdLeagueId, setCreatedLeagueId] = useState('')
   const [joinedName, setJoinedName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -36,6 +37,7 @@ export default function CreateJoinLeague({ tournamentId, userId }: Props) {
     } else {
       setCreatedCode(data.league.code)
       setCreatedName(data.league.name)
+      setCreatedLeagueId(data.league.id)
       setMode('created')
     }
     setLoading(false)
@@ -56,7 +58,7 @@ export default function CreateJoinLeague({ tournamentId, userId }: Props) {
     } else {
       setJoinedName(data.league.name)
       setMode('joined')
-      setTimeout(() => router.refresh(), 1200)
+      setTimeout(() => router.push(`/league/${data.league.id}`), 1200)
     }
     setLoading(false)
   }
@@ -133,7 +135,7 @@ export default function CreateJoinLeague({ tournamentId, userId }: Props) {
         </button>
 
         <button
-          onClick={() => router.refresh()}
+          onClick={() => router.push(`/league/${createdLeagueId}`)}
           className="w-full bg-[#c9a227] text-[#0a1a10] font-bold rounded-xl py-3.5 text-sm active:scale-95 transition-transform"
         >
           See the Leaderboard
