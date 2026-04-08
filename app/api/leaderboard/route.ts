@@ -1,9 +1,18 @@
 // Fantasy Flagstick — League Leaderboard API
 // Browser client can't read picks/members (RLS). This route uses service client.
 
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+
+/** Derive a display name from a Clerk User object */
+function clerkDisplayName(user: { firstName?: string | null; lastName?: string | null; emailAddresses?: { emailAddress: string }[] }): string {
+  const full = [user.firstName, user.lastName].filter(Boolean).join(' ')
+  if (full) return full
+  const email = user.emailAddresses?.[0]?.emailAddress
+  if (email) return email.split('@')[0]
+  return 'Player'
+}
 
 export async function GET(req: Request) {
   const { userId } = await auth()
@@ -38,17 +47,32 @@ export async function GET(req: Request) {
 
   if (!members?.length) return NextResponse.json({ entries: [] })
 
-  // Backfill display names from profiles for any member with a null league_members.display_name
-  const missingNameIds = members.filter((m) => !m.display_name).map((m) => m.user_id)
-  const profileNameMap = new Map<string, string>()
-  if (missingNameIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, display_name')
-      .in('id', missingNameIds)
-    profiles?.forEach((p) => {
-      if (p.display_name) profileNameMap.set(p.id, p.display_name)
-    })
+  // Build a map of known names from league_members
+  const nameMap = new Map<string, string>()
+  members.forEach((m) => {
+    if (m.display_name) nameMap.set(m.user_id, m.display_name)
+  })
+
+  // For any member still missing a name, fetch from Clerk Backend API (authoritative source)
+  const missingIds = members.filter((m) => !nameMap.has(m.user_id)).map((m) => m.user_id)
+  if (missingIds.length > 0) {
+    try {
+      const clerk = await clerkClient()
+      const { data: clerkUsers } = await clerk.users.getUserList({ userId: missingIds, limit: 100 })
+      for (const u of clerkUsers) {
+        const name = clerkDisplayName(u)
+        nameMap.set(u.id, name)
+        // Backfill league_members so future calls don't need to hit Clerk
+        await supabase
+          .from('league_members')
+          .update({ display_name: name })
+          .eq('league_id', leagueId)
+          .eq('user_id', u.id)
+          .is('display_name', null)
+      }
+    } catch {
+      // Clerk call failed — fall back to 'Player' for affected members
+    }
   }
 
   // Build postman lookup: user_id → player_id for this round
@@ -75,8 +99,7 @@ export async function GET(req: Request) {
 
   const entries = members.map((m) => ({
     userId: m.user_id,
-    // Preference: league_members.display_name → profiles.display_name → 'Player'
-    displayName: m.display_name || profileNameMap.get(m.user_id) || 'Player',
+    displayName: nameMap.get(m.user_id) ?? 'Player',
     totalScore: userScores.get(m.user_id)?.score ?? 0,
     holesCompleted: userScores.get(m.user_id)?.holes ?? 0,
   }))

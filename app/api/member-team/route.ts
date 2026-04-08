@@ -4,7 +4,15 @@
 // when viewed from another user's perspective (they use the Picks screen for that).
 // Auth: caller must be a member of the league.
 
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
+
+function clerkDisplayName(user: { firstName?: string | null; lastName?: string | null; emailAddresses?: { emailAddress: string }[] }): string {
+  const full = [user.firstName, user.lastName].filter(Boolean).join(' ')
+  if (full) return full
+  const email = user.emailAddresses?.[0]?.emailAddress
+  if (email) return email.split('@')[0]
+  return 'Player'
+}
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -74,7 +82,17 @@ export async function GET(req: Request) {
   const postmanPlayerId = chips?.[postmanCol] ?? null
 
   return NextResponse.json({
-    displayName: targetMember.display_name ?? 'Player',
+    displayName: await (async () => {
+      if (targetMember.display_name) return targetMember.display_name
+      try {
+        const clerk = await clerkClient()
+        const u = await clerk.users.getUser(targetUserId)
+        const name = clerkDisplayName(u)
+        // Backfill for next time
+        await supabase.from('league_members').update({ display_name: name }).eq('league_id', leagueId).eq('user_id', targetUserId).is('display_name', null)
+        return name
+      } catch { return 'Player' }
+    })(),
     picks: (picks ?? []).map((p) => ({
       holeNumber: p.hole_number,
       playerId: p.player_id,
