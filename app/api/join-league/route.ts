@@ -25,6 +25,11 @@ export async function POST(req: Request) {
     || user?.emailAddresses?.[0]?.emailAddress?.split('@')[0]
     || 'Player'
 
+  // Upsert profile so display_name is always available as a fallback
+  if (displayName !== 'Player') {
+    await supabase.from('profiles').upsert({ id: userId, display_name: displayName }, { onConflict: 'id', ignoreDuplicates: false })
+  }
+
   // Find league
   const { data: league } = await supabase
     .from('leagues')
