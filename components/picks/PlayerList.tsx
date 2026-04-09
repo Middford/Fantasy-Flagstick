@@ -13,6 +13,7 @@ interface PlayerListProps {
   picks: Map<string, number>            // playerId → uses this round
   remainingBudget: number
   currentPickPlayerId: string | null
+  currentPickPricePaid: number          // price refunded if hole is swapped (0 if empty)
   postmanPlayerId: string | null
   completedHoleScores: Map<string, boolean>  // playerId → has completed hole N-1
   beatTheBookieMap?: Map<string, { index: number; direction: string }>
@@ -38,6 +39,7 @@ export default function PlayerList({
   picks,
   remainingBudget,
   currentPickPlayerId,
+  currentPickPricePaid,
   postmanPlayerId,
   completedHoleScores,
   beatTheBookieMap,
@@ -84,7 +86,9 @@ export default function PlayerList({
         const isPostman = player.id === postmanPlayerId
         const lockedOut = completedHoleScores.get(player.id) ?? false
         const maxUses = uses >= 3
-        const cantAfford = player.current_price > remainingBudget && !isPicked
+        // Net cost of picking this player on this hole = price minus refund from current pick
+        const netCost = player.current_price - currentPickPricePaid
+        const cantAfford = netCost > remainingBudget && !isPicked
         const disabled = lockedOut || maxUses || (cantAfford && !isPicked)
 
         const btb = beatTheBookieMap?.get(player.id)

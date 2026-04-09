@@ -104,11 +104,9 @@ export default function PickScreen({
     if (saving) return
     setSaving(true)
 
-    // Can't pick if it would exceed budget (allow swapping existing pick on same hole)
-    const playerCost = currentPick
-      ? player.current_price - currentPick.price_paid
-      : player.current_price
-    if (!currentPick && playerCost > remaining) {
+    // Net cost: new price minus refund from the pick being replaced (0 if no existing pick)
+    const playerCost = player.current_price - (currentPick?.price_paid ?? 0)
+    if (playerCost > remaining) {
       setSaving(false)
       return
     }
@@ -255,6 +253,7 @@ export default function PickScreen({
         picks={usesMap}
         remainingBudget={remaining}
         currentPickPlayerId={currentPick?.player_id ?? null}
+        currentPickPricePaid={currentPick?.price_paid ?? 0}
         postmanPlayerId={postmanPlayerId}
         completedHoleScores={lockedOutMap}
         teeTimes={teeTimes}
