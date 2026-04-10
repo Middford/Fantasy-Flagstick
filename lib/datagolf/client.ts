@@ -30,13 +30,15 @@ const FieldUpdateSchema = z.object({
 const PreTournamentPredSchema = z.object({
   event_name: z.string(),
   last_updated: z.string(),
-  baseline: z.record(z.string(),
+  // API returns a flat array (not a record) — fixed from original z.record bug
+  baseline: z.array(
     z.object({
       player_name: z.string(),
       dg_id: z.number(),
       win: z.number().optional(),
       top_5: z.number().optional(),
       top_10: z.number().optional(),
+      top_20: z.number().optional(),
       make_cut: z.number().optional(),
     })
   ),
@@ -120,6 +122,53 @@ const LiveTournamentStatsSchema = z.object({
   // keep data as fallback in case API changes
   data: z.array(LiveTournamentStatsEntrySchema).optional(),
 })
+
+// Live hole scoring stats — per-hole birdie/par/bogey distributions
+const LiveHoleStatsHoleSchema = z.object({
+  hole: z.number(),
+  morning_wave: z.object({
+    avg: z.number().optional(),
+    birdie_pct: z.number().optional(),
+    par_pct: z.number().optional(),
+    bogey_pct: z.number().optional(),
+  }).optional(),
+  afternoon_wave: z.object({
+    avg: z.number().optional(),
+    birdie_pct: z.number().optional(),
+    par_pct: z.number().optional(),
+    bogey_pct: z.number().optional(),
+  }).optional(),
+}).passthrough()
+
+const LiveHoleStatsSchema = z.object({
+  courses: z.array(
+    z.object({
+      rounds: z.array(
+        z.object({
+          round_num: z.number(),
+          holes: z.array(LiveHoleStatsHoleSchema),
+        })
+      ),
+    })
+  ).optional(),
+}).passthrough()
+
+// Fantasy projections — DraftKings points projections
+const FantasyProjectionEntrySchema = z.object({
+  dg_id: z.number(),
+  player_name: z.string(),
+  proj_points_total: z.number().optional(),
+  ownership: z.number().optional(),
+  salary: z.number().optional(),
+}).passthrough()
+
+const FantasyProjectionsSchema = z.object({
+  projections: z.array(FantasyProjectionEntrySchema).optional(),
+}).passthrough()
+
+export type LiveHoleStats = z.infer<typeof LiveHoleStatsSchema>
+export type FantasyProjections = z.infer<typeof FantasyProjectionsSchema>
+export type FantasyProjectionEntry = z.infer<typeof FantasyProjectionEntrySchema>
 
 // Historical event list — actual response is a flat array (not {events:[...]})
 // event_id is a number (e.g. 14 for Masters), not a string
@@ -240,6 +289,23 @@ export const dataGolf = {
     tour = 'pga'
   ): Promise<LiveTournamentStats> {
     return fetchDataGolf('preds/live-tournament-stats', { stats, round, display, tour }, 300)
+  },
+
+  /**
+   * Live hole scoring distributions — avg score, birdie/par/bogey % per hole.
+   * Combines morning and afternoon wave data.
+   * Cache: 5 minutes.
+   */
+  getLiveHoleStats(tour = 'pga'): Promise<LiveHoleStats> {
+    return fetchDataGolf('preds/live-hole-stats', { tour }, 300)
+  },
+
+  /**
+   * Fantasy projection defaults — DraftKings projected points, ownership, salary.
+   * Cache: 5 minutes.
+   */
+  getFantasyProjections(tour = 'pga', site = 'draftkings', slate = 'main'): Promise<FantasyProjections> {
+    return fetchDataGolf('preds/fantasy-projection-defaults', { tour, site, slate }, 300)
   },
 
   /**

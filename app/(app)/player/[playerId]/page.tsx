@@ -28,7 +28,7 @@ async function fetchEspnProfile(espnId: string): Promise<EspnProfile | null> {
   try {
     const res = await fetch(
       `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/athletes/${espnId}?lang=en&region=gb`,
-      { next: { revalidate: 86400 } }
+      { next: { revalidate: 86400 }, signal: AbortSignal.timeout(4000) }
     )
     if (!res.ok) return null
     return res.json()
@@ -67,7 +67,7 @@ async function fetchEspnSeasonStats(espnId: string, year: number): Promise<EspnS
   try {
     const res = await fetch(
       `https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/seasons/${year}/types/2/athletes/${espnId}/statistics/0?lang=en&region=gb`,
-      { next: { revalidate: year < new Date().getFullYear() ? 86400 : 3600 } }
+      { next: { revalidate: year < new Date().getFullYear() ? 86400 : 3600 }, signal: AbortSignal.timeout(4000) }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -101,8 +101,8 @@ async function fetchEspnSeasonStats(espnId: string, year: number): Promise<EspnS
 
 async function fetchCareerTotals(espnId: string): Promise<CareerTotals | null> {
   const currentYear = new Date().getFullYear()
-  // Fetch last 7 seasons in parallel; earlier seasons gracefully return null
-  const years = Array.from({ length: 7 }, (_, i) => currentYear - i)
+  // 3 seasons only — 7 was causing Vercel function timeouts (10s limit)
+  const years = Array.from({ length: 3 }, (_, i) => currentYear - i)
   const results = await Promise.allSettled(years.map((y) => fetchEspnSeasonStats(espnId, y)))
   const seasons = results
     .filter((r): r is PromiseFulfilledResult<EspnSeasonStats | null> => r.status === 'fulfilled')
@@ -126,6 +126,16 @@ interface DataGolfStats {
   thru: number | null
 }
 
+interface DgRankingStats {
+  dgRank: number | null
+  sg_total: number | null
+  sg_putt: number | null
+  sg_arg: number | null
+  sg_app: number | null
+  sg_ott: number | null
+  sg_t2g: number | null
+}
+
 async function fetchDataGolfStats(dgId: string): Promise<DataGolfStats | null> {
   if (!process.env.DATAGOLF_API_KEY) return null
   try {
@@ -142,6 +152,28 @@ async function fetchDataGolfStats(dgId: string): Promise<DataGolfStats | null> {
       makeCutPct: (isMasters && entry.make_cut != null) ? Math.round(entry.make_cut * 1000) / 10 : null,
       today: isMasters ? (entry.today ?? null) : null,
       thru: isMasters ? (entry.thru ?? null) : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchDgRankings(dgId: string): Promise<DgRankingStats | null> {
+  if (!process.env.DATAGOLF_API_KEY) return null
+  try {
+    // getSkillRatings returns players sorted by DG rank (index 0 = rank 1)
+    const ratings = await dataGolf.getSkillRatings('value')
+    const idx = ratings.players.findIndex((p) => String(p.dg_id) === dgId)
+    if (idx === -1) return null
+    const player = ratings.players[idx]
+    return {
+      dgRank: idx + 1,
+      sg_total: player.sg_total ?? null,
+      sg_putt: player.sg_putt ?? null,
+      sg_arg: player.sg_arg ?? null,
+      sg_app: player.sg_app ?? null,
+      sg_ott: player.sg_ott ?? null,
+      sg_t2g: player.sg_t2g ?? null,
     }
   } catch {
     return null
@@ -190,52 +222,12 @@ interface MastersYearResult {
   finish: string | null
 }
 
-// Masters event_id in DataGolf is consistently 14 across all years.
-// If needed, it can be discovered via getHistoricalEventList('pga') by finding
-// the event where event_name includes 'Masters' and tour === 'pga'.
-const MASTERS_DG_EVENT_ID = 14
 
-async function fetchMastersHistory(dgId: string): Promise<MastersYearResult[]> {
-  if (!process.env.DATAGOLF_API_KEY) return []
-  try {
-    const currentYear = new Date().getFullYear()
-    const years = [currentYear - 2, currentYear - 1, currentYear]
-
-    const results = await Promise.allSettled(
-      years.map((y) => dataGolf.getHistoricalRounds('pga', MASTERS_DG_EVENT_ID, y))
-    )
-
-    const history: MastersYearResult[] = []
-
-    results.forEach((result, i) => {
-      const year = years[i]
-      if (result.status !== 'fulfilled') return
-      const rounds = result.value.data.filter((r) => String(r.dg_id) === dgId)
-      if (rounds.length === 0) return
-
-      // Build R1–R4 vs-par from score field (score is raw strokes; augusta par=72)
-      const AUGUSTA_PAR = 72
-      const roundScores: (number | null)[] = [null, null, null, null]
-      rounds.forEach((r) => {
-        const rn = (r.round_num ?? 0) - 1
-        if (rn >= 0 && rn < 4 && r.score != null) {
-          roundScores[rn] = r.score - AUGUSTA_PAR
-        }
-      })
-
-      const anyScore = roundScores.some((s) => s !== null)
-      if (!anyScore) return
-
-      // fin_text is on any round row
-      const finish = rounds[rounds.length - 1]?.fin_text ?? null
-
-      history.push({ year, rounds: roundScores, finish })
-    })
-
-    return history.sort((a, b) => b.year - a.year)
-  } catch {
-    return []
-  }
+// Historical rounds endpoint requires a paid historical data subscription (403 on Scratch Plus).
+// Return empty until the subscription is upgraded.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function fetchMastersHistory(_dgId: string): Promise<MastersYearResult[]> {
+  return []
 }
 
 function ageFromDob(dob: string): number | null {
@@ -329,18 +321,15 @@ export default async function PlayerProfilePage({
   const { playerId } = await params
   const db = createServiceClient()
 
-  // Fetch player, hole scores and holes in parallel
-  const [
-    { data: player },
-    { data: holeScores },
-    { data: holes },
-  ] = await Promise.all([
-    db.from('players').select('*').eq('id', playerId).single(),
-    db.from('hole_scores').select('*').eq('player_id', playerId).order('round').order('hole_number'),
-    db.from('holes').select('number, par').order('number'),
-  ])
-
+  // Fetch player first so we have tournament_id for subsequent queries
+  const { data: player } = await db.from('players').select('*').eq('id', playerId).single()
   if (!player) notFound()
+
+  // Fetch hole scores + holes in parallel, scoped to this tournament
+  const [{ data: holeScores }, { data: holes }] = await Promise.all([
+    db.from('hole_scores').select('*').eq('player_id', playerId).eq('tournament_id', player.tournament_id).order('round').order('hole_number'),
+    db.from('holes').select('number, par').eq('tournament_id', player.tournament_id).order('number'),
+  ])
 
   // Build par lookup — prefer DB, fall back to Augusta constants
   const parMap: Record<number, number> = { ...AUGUSTA_PARS }
@@ -351,13 +340,14 @@ export default async function PlayerProfilePage({
   const currentYear = new Date().getFullYear()
 
   // Fetch all data in parallel
-  const [espnProfile, dgStats, sgSplits, mastersHistory, currentSeasonStats, careerTotals, { data: fieldPlayers }] = await Promise.all([
-    player.espn_id ? fetchEspnProfile(player.espn_id) : Promise.resolve(null),
-    player.datagolf_id ? fetchDataGolfStats(player.datagolf_id) : Promise.resolve(null),
-    player.datagolf_id ? fetchSgSplits(player.datagolf_id) : Promise.resolve(null),
-    player.datagolf_id ? fetchMastersHistory(player.datagolf_id) : Promise.resolve([]),
-    player.espn_id ? fetchEspnSeasonStats(player.espn_id, currentYear) : Promise.resolve(null),
-    player.espn_id ? fetchCareerTotals(player.espn_id) : Promise.resolve(null),
+  const [espnProfile, dgStats, sgSplits, dgRankings, mastersHistory, currentSeasonStats, careerTotals, { data: fieldPlayers }] = await Promise.all([
+    (player.espn_id ? fetchEspnProfile(player.espn_id) : Promise.resolve(null)).catch(() => null),
+    (player.datagolf_id ? fetchDataGolfStats(player.datagolf_id) : Promise.resolve(null)).catch(() => null),
+    (player.datagolf_id ? fetchSgSplits(player.datagolf_id) : Promise.resolve(null)).catch(() => null),
+    (player.datagolf_id ? fetchDgRankings(player.datagolf_id) : Promise.resolve(null)).catch(() => null),
+    (player.datagolf_id ? fetchMastersHistory(player.datagolf_id) : Promise.resolve([])).catch(() => [] as MastersYearResult[]),
+    (player.espn_id ? fetchEspnSeasonStats(player.espn_id, currentYear) : Promise.resolve(null)).catch(() => null),
+    (player.espn_id ? fetchCareerTotals(player.espn_id) : Promise.resolve(null)).catch(() => null),
     db.from('players')
       .select('id, total_score, holes_completed, status')
       .eq('tournament_id', player.tournament_id)
@@ -510,8 +500,37 @@ export default async function PlayerProfilePage({
         </div>
       )}
 
+      {/* DataGolf Rankings */}
+      {dgRankings && (dgRankings.dgRank !== null || dgRankings.sg_total !== null) && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b]">
+          <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">DataGolf Ranking</h3>
+          <div className="grid grid-cols-2 gap-3">
+            {dgRankings.dgRank !== null && (
+              <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+                <div className="text-2xl font-score font-bold text-[#c9a227]">#{dgRankings.dgRank}</div>
+                <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">DG Rank</div>
+              </div>
+            )}
+            {dgRankings.sg_total !== null && (
+              <div className="bg-[#1a3d2b] rounded-xl p-3 text-center">
+                <div className={`text-2xl font-score font-bold ${dgRankings.sg_total > 0 ? 'text-[#4adb7a]' : dgRankings.sg_total < 0 ? 'text-[#e05555]' : 'text-white'}`}>
+                  {dgRankings.sg_total > 0 ? '+' : ''}{dgRankings.sg_total.toFixed(2)}
+                </div>
+                <div className="text-[10px] text-[#8ab89a] uppercase tracking-wide mt-0.5">SG Total</div>
+              </div>
+            )}
+          </div>
+          <p className="text-[9px] text-[#3d5c40] mt-2 text-center">DataGolf skill ratings · updated weekly</p>
+        </div>
+      )}
+
       {/* Official Scorecard — vertical (one row per hole) */}
-      <div className="border-b border-[#1a3d2b]">
+      {(holeScores ?? []).length === 0 && (
+        <div className="px-4 py-4 border-b border-[#1a3d2b] text-center text-[11px] text-[#5a7a65]">
+          Scorecard available once play begins
+        </div>
+      )}
+      <div className={(holeScores ?? []).length === 0 ? 'hidden' : 'border-b border-[#1a3d2b]'}>
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">
           <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide">Official Score Card</h3>
           {/* Legend */}
@@ -730,51 +749,63 @@ export default async function PlayerProfilePage({
         </div>
       </div>
 
-      {/* Strokes Gained — current tournament cumulative */}
-      {sgSplits && Object.values(sgSplits).some((v) => v !== null) && (
-        <div className="px-4 py-4 border-b border-[#1a3d2b]">
-          <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">
-            Strokes Gained · This Tournament
-          </h3>
-          <div className="space-y-2.5">
-            {([
-              { key: 'sg_ott', label: 'Off the Tee' },
-              { key: 'sg_app', label: 'Approach' },
-              { key: 'sg_arg', label: 'Around Green' },
-              { key: 'sg_putt', label: 'Putting' },
-              { key: 'sg_t2g', label: 'Tee to Green' },
-            ] as const).map(({ key, label }) => {
-              const val = sgSplits[key]
-              if (val === null) return null
-              const rounded = Math.round(val * 100) / 100
-              const pct = Math.min(Math.abs(val) / 3, 1) * 50 // max bar at ±3 SG
-              return (
-                <div key={key}>
-                  <div className="flex justify-between items-baseline mb-0.5">
-                    <span className="text-xs text-[#8ab89a]">{label}</span>
-                    <span className={`text-xs font-bold font-score ${val > 0 ? 'text-[#4adb7a]' : val < 0 ? 'text-[#e05555]' : 'text-[#8ab89a]'}`}>
-                      {val > 0 ? '+' : ''}{rounded.toFixed(2)}
-                    </span>
+      {/* Strokes Gained — live tournament or skill rating baseline */}
+      {(() => {
+        // Prefer live tournament SG; fall back to skill ratings
+        const liveSg = sgSplits && Object.values(sgSplits).some((v) => v !== null) ? sgSplits : null
+        const skillSg = !liveSg && dgRankings && [dgRankings.sg_ott, dgRankings.sg_app, dgRankings.sg_arg, dgRankings.sg_putt, dgRankings.sg_t2g].some((v) => v !== null)
+          ? { sg_ott: dgRankings.sg_ott, sg_app: dgRankings.sg_app, sg_arg: dgRankings.sg_arg, sg_putt: dgRankings.sg_putt, sg_t2g: dgRankings.sg_t2g }
+          : null
+        const source = liveSg ?? skillSg
+        if (!source) return null
+        const isLive = liveSg !== null
+        return (
+          <div className="px-4 py-4 border-b border-[#1a3d2b]">
+            <h3 className="text-xs font-bold text-[#8ab89a] uppercase tracking-wide mb-3">
+              {isLive ? 'Strokes Gained · This Tournament' : 'Strokes Gained · Skill Ratings'}
+            </h3>
+            <div className="space-y-2.5">
+              {([
+                { key: 'sg_ott' as const, label: 'Off the Tee' },
+                { key: 'sg_app' as const, label: 'Approach' },
+                { key: 'sg_arg' as const, label: 'Around Green' },
+                { key: 'sg_putt' as const, label: 'Putting' },
+                { key: 'sg_t2g' as const, label: 'Tee to Green' },
+              ]).map(({ key, label }) => {
+                const val = source[key]
+                if (val === null) return null
+                const rounded = Math.round(val * 100) / 100
+                const pct = Math.min(Math.abs(val) / 3, 1) * 50 // max bar at ±3 SG
+                return (
+                  <div key={key}>
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <span className="text-xs text-[#8ab89a]">{label}</span>
+                      <span className={`text-xs font-bold font-score ${val > 0 ? 'text-[#4adb7a]' : val < 0 ? 'text-[#e05555]' : 'text-[#8ab89a]'}`}>
+                        {val > 0 ? '+' : ''}{rounded.toFixed(2)}
+                      </span>
+                    </div>
+                    {/* Bar: centred at 50%, grows left (neg) or right (pos) */}
+                    <div className="relative h-1.5 bg-[#1a3d2b] rounded-full overflow-hidden">
+                      <div
+                        className={`absolute top-0 h-full rounded-full ${val >= 0 ? 'bg-[#4adb7a]' : 'bg-[#e05555]'}`}
+                        style={{
+                          left: val >= 0 ? '50%' : `${50 - pct}%`,
+                          width: `${pct}%`,
+                        }}
+                      />
+                      {/* Centre tick */}
+                      <div className="absolute top-0 left-1/2 w-px h-full bg-[#2d5c3f]" />
+                    </div>
                   </div>
-                  {/* Bar: centred at 50%, grows left (neg) or right (pos) */}
-                  <div className="relative h-1.5 bg-[#1a3d2b] rounded-full overflow-hidden">
-                    <div
-                      className={`absolute top-0 h-full rounded-full ${val >= 0 ? 'bg-[#4adb7a]' : 'bg-[#e05555]'}`}
-                      style={{
-                        left: val >= 0 ? '50%' : `${50 - pct}%`,
-                        width: `${pct}%`,
-                      }}
-                    />
-                    {/* Centre tick */}
-                    <div className="absolute top-0 left-1/2 w-px h-full bg-[#2d5c3f]" />
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+            <p className="text-[9px] text-[#3d5c40] mt-3 text-center">
+              {isLive ? 'DataGolf · cumulative this tournament' : 'DataGolf skill ratings · pre-tournament baseline'}
+            </p>
           </div>
-          <p className="text-[9px] text-[#3d5c40] mt-3 text-center">DataGolf · cumulative this tournament</p>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Augusta National history */}
       {mastersHistory.length > 0 && (

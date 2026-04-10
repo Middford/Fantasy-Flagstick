@@ -14,10 +14,12 @@ interface PlayerListProps {
   remainingBudget: number
   currentPickPlayerId: string | null
   currentPickPricePaid: number          // price refunded if hole is swapped (0 if empty)
+  currentPickLocked: boolean            // true → hole is locked, no changes allowed
   postmanPlayerId: string | null
   completedHoleScores: Map<string, boolean>  // playerId → has completed hole N-1
   beatTheBookieMap?: Map<string, { index: number; direction: string }>
   teeTimes?: Record<string, TeeTime>    // player name_full.toLowerCase() → tee times
+  winPctMap?: Map<string, number>       // datagolf_id → win probability (0–1)
   onPick: (player: Player) => void
 }
 
@@ -40,10 +42,12 @@ export default function PlayerList({
   remainingBudget,
   currentPickPlayerId,
   currentPickPricePaid,
+  currentPickLocked,
   postmanPlayerId,
   completedHoleScores,
   beatTheBookieMap,
   teeTimes,
+  winPctMap,
   onPick,
 }: PlayerListProps) {
   const router = useRouter()
@@ -59,8 +63,8 @@ export default function PlayerList({
     const bLocked = completedHoleScores.get(b.id) ?? false
     const aMaxUses = (picks.get(a.id) ?? 0) >= 3
     const bMaxUses = (picks.get(b.id) ?? 0) >= 3
-    const aCantAfford = a.current_price > remainingBudget
-    const bCantAfford = b.current_price > remainingBudget
+    const aCantAfford = (a.current_price - (a.id === currentPickPlayerId ? 0 : currentPickPricePaid)) > remainingBudget && a.id !== currentPickPlayerId
+    const bCantAfford = (b.current_price - (b.id === currentPickPlayerId ? 0 : currentPickPricePaid)) > remainingBudget && b.id !== currentPickPlayerId
 
     // Availability groups
     if (aLocked !== bLocked) return aLocked ? 1 : -1
@@ -89,10 +93,14 @@ export default function PlayerList({
         // Net cost of picking this player on this hole = price minus refund from current pick
         const netCost = player.current_price - currentPickPricePaid
         const cantAfford = netCost > remainingBudget && !isPicked
-        const disabled = lockedOut || maxUses || (cantAfford && !isPicked)
+        // Hole is locked: no player can be picked/swapped for it
+        const disabled = currentPickLocked || lockedOut || maxUses || (cantAfford && !isPicked)
 
         const btb = beatTheBookieMap?.get(player.id)
         const btbIcon = btb && btb.index > 100 ? '🚀' : btb && btb.index > 0 ? '📈' : btb ? '📉' : null
+
+        const dgId = (player as { datagolf_id?: string }).datagolf_id
+        const winPct = dgId && winPctMap ? winPctMap.get(dgId) : undefined
 
         return (
           <div
@@ -123,6 +131,11 @@ export default function PlayerList({
                 )}
                 {lockedOut && (
                   <span className="text-[#e8a020]">Locked out</span>
+                )}
+                {winPct != null && (
+                  <span className="text-[#8ab89a]">
+                    · W: {(winPct * 100).toFixed(1)}%
+                  </span>
                 )}
               </div>
             </div>
@@ -167,7 +180,7 @@ export default function PlayerList({
                   ? 'bg-[#1a3d2b] text-[#5a7a65] cursor-not-allowed'
                   : 'bg-[#2d5c3f] text-white active:scale-95'}`}
             >
-              {isPicked ? '✓' : maxUses ? 'Max' : lockedOut ? 'Out' : `£${player.current_price}m`}
+              {isPicked && currentPickLocked ? '🔒' : isPicked ? '✓' : maxUses ? 'Max' : lockedOut ? 'Out' : `£${player.current_price}m`}
             </button>
           </div>
         )

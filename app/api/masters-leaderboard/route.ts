@@ -54,10 +54,17 @@ export async function GET() {
       const status = scoreStatus(scoreStr)
       const scoreNum = parseScoreNum(scoreStr)
 
-      // Count holes completed in current round from linescores
-      const completedHoles = (c.linescores ?? []).filter(
-        (ls) => ls.value && ls.value !== 'F' && ls.value !== '-' && ls.value !== '--'
-      ).length
+      // ESPN structure: linescores[i] = round entry (period=round), linescores[i].linescores = per-hole data
+      // Find the active round entry (the one with per-hole data)
+      const activeRoundEntry = (c.linescores ?? []).find(
+        (ls: { period?: number; linescores?: unknown[] }) => ls.linescores && ls.linescores.length > 0
+      ) as { linescores?: { displayValue?: string; value?: number }[] } | undefined
+
+      const completedHoles = activeRoundEntry?.linescores?.filter((h) => {
+        const v = h.displayValue ?? (h.value != null ? String(Math.round(h.value)) : undefined)
+        return v && v !== '-' && v !== '--' && v !== 'F' && !isNaN(parseInt(v, 10))
+      }).length ?? 0
+
       const thru = completedHoles === 18 ? 'F' : completedHoles > 0 ? `${completedHoles}` : '-'
 
       return {

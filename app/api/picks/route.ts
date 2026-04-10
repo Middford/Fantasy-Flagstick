@@ -29,6 +29,20 @@ export async function POST(req: Request) {
   const { leagueId, tournamentId, round, holeNumber, playerId, pricePaid, isPostman } = parsed.data
   const supabase = createServiceClient()
 
+  // Refuse to modify a locked pick
+  const { data: existingPick } = await supabase
+    .from('picks')
+    .select('id, is_locked')
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .eq('round', round)
+    .eq('hole_number', holeNumber)
+    .maybeSingle()
+
+  if (existingPick?.is_locked) {
+    return NextResponse.json({ error: 'Cannot modify a locked pick' }, { status: 409 })
+  }
+
   const { error } = await supabase.from('picks').upsert(
     {
       league_id: leagueId,
@@ -56,6 +70,53 @@ export async function POST(req: Request) {
     .eq('user_id', userId)
     .eq('league_id', leagueId)
     .eq('round', round)
+
+  return NextResponse.json({ picks: picks ?? [] })
+}
+
+// DELETE — remove a single pick by hole number
+export async function DELETE(req: Request) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const leagueId = searchParams.get('leagueId')
+  const round = searchParams.get('round')
+  const holeNumber = searchParams.get('holeNumber')
+
+  if (!leagueId || !round || !holeNumber) return NextResponse.json({ error: 'Missing params' }, { status: 400 })
+
+  const supabase = createServiceClient()
+
+  // Refuse to delete a locked pick
+  const { data: pick } = await supabase
+    .from('picks')
+    .select('id, is_locked')
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .eq('round', parseInt(round, 10))
+    .eq('hole_number', parseInt(holeNumber, 10))
+    .maybeSingle()
+
+  if (pick?.is_locked) {
+    return NextResponse.json({ error: 'Cannot remove a locked pick' }, { status: 409 })
+  }
+
+  await supabase
+    .from('picks')
+    .delete()
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .eq('round', parseInt(round, 10))
+    .eq('hole_number', parseInt(holeNumber, 10))
+
+  // Return updated picks for the round
+  const { data: picks } = await supabase
+    .from('picks')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('league_id', leagueId)
+    .eq('round', parseInt(round, 10))
 
   return NextResponse.json({ picks: picks ?? [] })
 }

@@ -86,6 +86,26 @@ export async function POST(req: Request) {
     }
 
     const isActive = currentChips.sponsorship_used && currentChips.sponsorship_round === parsed.data.round
+
+    // Guard deactivation: if team value exceeds standard budget, can't turn Sponsor off
+    if (isActive) {
+      const BASE_BUDGET = 180
+      const { data: roundPicks } = await supabase
+        .from('picks')
+        .select('price_paid')
+        .eq('league_id', parsed.data.leagueId)
+        .eq('user_id', userId)
+        .eq('round', parsed.data.round)
+
+      const spent = (roundPicks ?? []).reduce((sum, p) => sum + (p.price_paid ?? 0), 0)
+      if (spent > BASE_BUDGET) {
+        return NextResponse.json(
+          { error: 'over_budget', message: 'Your team value exceeds the standard budget. Remove or swap players first before deactivating Sponsor.' },
+          { status: 409 }
+        )
+      }
+    }
+
     const update = isActive
       ? { sponsorship_used: false, sponsorship_round: null as number | null }
       : { sponsorship_used: true, sponsorship_round: parsed.data.round as number | null }

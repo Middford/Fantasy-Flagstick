@@ -24,6 +24,12 @@ interface MastersEntry {
   status: 'active' | 'cut' | 'wd' | 'dq'
 }
 
+interface DgLivePlayer {
+  dg_id: string
+  player_name: string  // already converted to "Firstname Surname"
+  sg_total: number | null
+}
+
 interface FantasyEntry {
   userId: string
   displayName: string
@@ -58,6 +64,7 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, userId
   const [mastersStatus, setMastersStatus] = useState<string>('pre')
   const [fantasyEntries, setFantasyEntries] = useState<FantasyEntry[]>([])
   const [fantasyLoading, setFantasyLoading] = useState(false)
+  const [dgLivePlayers, setDgLivePlayers] = useState<DgLivePlayer[]>([])
 
   useEffect(() => {
     if (tab !== 'leaderboard') return
@@ -90,12 +97,23 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, userId
       }
     }
 
+    async function fetchDgLiveStats() {
+      try {
+        const res = await fetch('/api/datagolf/live-stats')
+        if (!res.ok) return
+        const json = await res.json()
+        setDgLivePlayers(json.players ?? [])
+      } catch { /* silent failure */ }
+    }
+
     fetchMasters()
     fetchFantasy()
+    fetchDgLiveStats()
 
     const interval = setInterval(() => {
       fetchMasters()
       fetchFantasy()
+      fetchDgLiveStats()
     }, 30_000)
     return () => clearInterval(interval)
   }, [tab, leagueId, round]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,25 +210,45 @@ export default function BeatTheBookieTab({ tournamentId, round, leagueId, userId
                 <span className="flex-1 text-[10px] text-[#5a7a65]">Player</span>
                 <span className="w-10 text-right text-[10px] text-[#5a7a65]">Total</span>
                 <span className="w-8 text-right text-[10px] text-[#5a7a65]">Thru</span>
+                {mastersStatus !== 'pre' && dgLivePlayers.length > 0 && (
+                  <span className="w-10 text-right text-[10px] text-[#5a7a65]">SG</span>
+                )}
               </div>
-              {mastersEntries.slice(0, 30).map((entry, i) => (
-                <div
-                  key={i}
-                  className={`flex items-center gap-2 px-4 py-2.5 border-b border-[#1a3d2b]
-                    ${entry.status !== 'active' ? 'opacity-50' : ''}`}
-                >
-                  <span className="w-8 text-[11px] text-[#8ab89a] flex-shrink-0">{entry.position}</span>
-                  <span className="flex-1 text-sm text-white font-medium truncate">{entry.name}</span>
-                  <span className={`w-10 text-right font-score text-sm font-bold flex-shrink-0
-                    ${entry.status !== 'active' ? 'text-[#5a7a65]'
-                    : entry.total.startsWith('-') ? 'text-[#4adb7a]'
-                    : entry.total === 'E' ? 'text-white'
-                    : 'text-[#e05555]'}`}>
-                    {entry.total}
-                  </span>
-                  <span className="w-8 text-right text-[11px] text-[#5a7a65] flex-shrink-0">{entry.thru}</span>
-                </div>
-              ))}
+              {mastersEntries.slice(0, 30).map((entry, i) => {
+                // Match by name — DG player_name already converted to "Firstname Surname"
+                const dgPlayer = mastersStatus !== 'pre' ? dgLivePlayers.find(
+                  (p) => p.player_name.toLowerCase() === entry.name.toLowerCase()
+                ) : undefined
+                const sgTotal = dgPlayer?.sg_total ?? null
+
+                return (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-2 px-4 py-2.5 border-b border-[#1a3d2b]
+                      ${entry.status !== 'active' ? 'opacity-50' : ''}`}
+                  >
+                    <span className="w-8 text-[11px] text-[#8ab89a] flex-shrink-0">{entry.position}</span>
+                    <span className="flex-1 text-sm text-white font-medium truncate">{entry.name}</span>
+                    <span className={`w-10 text-right font-score text-sm font-bold flex-shrink-0
+                      ${entry.status !== 'active' ? 'text-[#5a7a65]'
+                      : entry.total.startsWith('-') ? 'text-[#4adb7a]'
+                      : entry.total === 'E' ? 'text-white'
+                      : 'text-[#e05555]'}`}>
+                      {entry.total}
+                    </span>
+                    <span className="w-8 text-right text-[11px] text-[#5a7a65] flex-shrink-0">{entry.thru}</span>
+                    {mastersStatus !== 'pre' && dgLivePlayers.length > 0 && (
+                      <span className={`w-10 text-right text-[11px] font-score font-bold flex-shrink-0
+                        ${sgTotal === null ? 'text-[#5a7a65]'
+                        : sgTotal > 0 ? 'text-[#4adb7a]'
+                        : sgTotal < 0 ? 'text-[#e05555]'
+                        : 'text-[#8ab89a]'}`}>
+                        {sgTotal === null ? '—' : `${sgTotal > 0 ? '+' : ''}${sgTotal.toFixed(1)}`}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 

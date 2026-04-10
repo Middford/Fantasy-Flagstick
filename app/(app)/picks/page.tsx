@@ -45,12 +45,12 @@ export default async function PicksPage({
     )
   }
 
-  // Determine which rounds are available to pick
-  // Always allow current round + next round (if within tournament)
-  const availableRounds = [
-    tournament.current_round,
-    tournament.current_round + 1,
-  ].filter((r) => r >= 1 && r <= 4)
+  // Show all rounds up to and including current_round (past rounds viewable, future hidden)
+  // R3/R4 only appear once current_round has actually advanced to 3/4 via sync-scores auto-advance
+  const availableRounds = Array.from(
+    { length: tournament.current_round },
+    (_, i) => i + 1
+  ).filter((r) => r >= 1 && r <= 4)
 
   // Resolve selected round from URL param (default to current_round)
   const { round: roundParam } = await searchParams
@@ -66,12 +66,13 @@ export default async function PicksPage({
     .eq('tournament_id', tournament.id)
     .order('number')
 
-  // Get players ordered by price for the selected round
+  // Fetch ALL players (active + cut + withdrawn) so HoleGrid can display names
+  // for picks referencing cut players (R1/R2 picks after the cut).
+  // PlayerList filters to active-only internally.
   const { data: players } = await db
     .from('players')
     .select('*')
     .eq('tournament_id', tournament.id)
-    .eq('status', 'active')
     .order('current_price', { ascending: false })
 
   // Get user's primary league
@@ -192,6 +193,7 @@ export default async function PicksPage({
         leagueId={leagueId}
         tournamentId={tournament.id}
         round={selectedRound}
+        currentRound={tournament.current_round}
         initialHoles={holes}
         initialPlayers={players}
         initialPicks={picks ?? []}

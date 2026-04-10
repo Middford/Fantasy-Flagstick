@@ -10,6 +10,14 @@ import ChipsPanel from './ChipsPanel'
 import HoleGrid from './HoleGrid'
 import PlayerList from './PlayerList'
 
+interface HoleStatEntry {
+  hole: number
+  avg: number | null
+  birdie_pct: number | null
+  par_pct: number | null
+  bogey_pct: number | null
+}
+
 interface TeeTime { r1: string | null; r2: string | null }
 
 interface PickScreenProps {
@@ -17,6 +25,7 @@ interface PickScreenProps {
   leagueId: string
   tournamentId: string
   round: number
+  currentRound: number
   initialHoles: Hole[]
   initialPlayers: Player[]
   initialPicks: Pick[]
@@ -29,6 +38,7 @@ export default function PickScreen({
   leagueId,
   tournamentId,
   round,
+  currentRound,
   initialHoles,
   initialPlayers,
   initialPicks,
@@ -42,9 +52,14 @@ export default function PickScreen({
   const [selectedHole, setSelectedHole] = useState<number>(1)
   const [saving, setSaving] = useState(false)
   const [postmanPickerOpen, setPostmanPickerOpen] = useState(false)
+  const [sponsorError, setSponsorError] = useState<string | null>(null)
 
-  // Sync scores every 30s from client — replaces Vercel Cron (Hobby plan limitation)
-  useScoreSync(true)
+  // DataGolf secondary data
+  const [winPctMap, setWinPctMap] = useState<Map<string, number>>(new Map())
+  const [holeStats, setHoleStats] = useState<HoleStatEntry[]>([])
+
+  // Sync scores every 30s — only fire when viewing the live round (no point syncing past rounds)
+  useScoreSync(round === currentRound)
 
   const postmanKey = `postman_r${round}_player_id` as keyof Chips
   const postmanPlayerId = chips ? (chips[postmanKey] as string | null) : null
@@ -91,6 +106,36 @@ export default function PickScreen({
     return () => { supabase.removeChannel(channel) }
   }, [tournamentId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch DataGolf predictions (win%)
+  useEffect(() => {
+    async function fetchPredictions() {
+      try {
+        const res = await fetch('/api/datagolf/predictions')
+        if (!res.ok) return
+        const json = await res.json()
+        const map = new Map<string, number>()
+        for (const p of json.players ?? []) {
+          if (p.dg_id && p.win_pct != null) map.set(p.dg_id, p.win_pct)
+        }
+        setWinPctMap(map)
+      } catch { /* silent failure */ }
+    }
+    fetchPredictions()
+  }, [])
+
+  // Fetch DataGolf live hole stats
+  useEffect(() => {
+    async function fetchHoleStats() {
+      try {
+        const res = await fetch('/api/datagolf/hole-stats')
+        if (!res.ok) return
+        const json = await res.json()
+        setHoleStats(json.holes ?? [])
+      } catch { /* silent failure */ }
+    }
+    fetchHoleStats()
+  }, [])
+
   // Fetch picks via API (browser client has no auth → direct Supabase calls are RLS-blocked)
   const refreshPicks = useCallback(async () => {
     const res = await fetch(`/api/picks?leagueId=${leagueId}&round=${round}`)
@@ -102,6 +147,8 @@ export default function PickScreen({
 
   async function handlePick(player: Player) {
     if (saving) return
+    // Prevent swapping a locked pick
+    if (currentPick?.is_locked) return
     setSaving(true)
 
     // Net cost: new price minus refund from the pick being replaced (0 if no existing pick)
@@ -144,16 +191,37 @@ export default function PickScreen({
 
   async function handleSponsorshipDeal() {
     if (!chips) return
+    setSponsorError(null)
     const res = await fetch('/api/chips', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'sponsorship_toggle', round, chipsId: chips.id, leagueId }),
     })
-    if (res.status === 409) return // Locked in or used for another round — UI should prevent this
+    if (res.status === 409) {
+      const data = await res.json()
+      if (data.error === 'over_budget') {
+        setSponsorError(data.message)
+      }
+      return
+    }
     if (res.ok) {
       const data = await res.json()
       setChips({ ...chips, sponsorship_used: data.sponsorship_used, sponsorship_round: data.sponsorship_round ?? null })
     }
+  }
+
+  async function handleRemovePick(holeNumber: number) {
+    if (saving) return
+    setSaving(true)
+    const res = await fetch(
+      `/api/picks?leagueId=${leagueId}&round=${round}&holeNumber=${holeNumber}`,
+      { method: 'DELETE' }
+    )
+    if (res.ok) {
+      const data = await res.json()
+      if (data.picks) setPicks(data.picks)
+    }
+    setSaving(false)
   }
 
   async function handleSelectPostman(playerId: string) {
@@ -178,8 +246,20 @@ export default function PickScreen({
 
   const allPicked = roundPicks.length === 18
 
+  const isPastRound = round < currentRound
+
   return (
     <div className="flex flex-col">
+      {/* Past round read-only banner */}
+      {isPastRound && (
+        <div className="mx-4 mt-3 px-3 py-2.5 rounded-xl bg-[#0f2518] border border-[#2d5c3f] flex items-center gap-2">
+          <span className="text-sm">📋</span>
+          <p className="text-[11px] text-[#8ab89a]">
+            Round {round} complete — viewing your scores
+          </p>
+        </div>
+      )}
+
       {/* Budget bar */}
       <BudgetBar remaining={remaining} total={totalBudget} holesLeft={holesLeft} />
 
@@ -197,6 +277,17 @@ export default function PickScreen({
           <>Picks save automatically</>
         )}
       </div>
+
+      {/* Sponsor error message */}
+      {sponsorError && (
+        <div className="mx-4 mt-2 px-3 py-2.5 rounded-xl bg-[#3d1a00] border border-[#7a3a00] flex items-start gap-2">
+          <span className="text-base flex-shrink-0">⚠️</span>
+          <div className="flex-1">
+            <p className="text-[11px] text-[#e8a020] leading-snug">{sponsorError}</p>
+          </div>
+          <button onClick={() => setSponsorError(null)} className="text-[#5a7a65] text-sm leading-none">✕</button>
+        </div>
+      )}
 
       {/* Chips */}
       <ChipsPanel
@@ -236,10 +327,49 @@ export default function PickScreen({
               <span className="text-[11px] text-[#8ab89a]">{selectedHoleData.birdie_pct}% birdie rate</span>
             )}
           </div>
+          {/* DG live hole scoring distributions */}
+          {(() => {
+            const dgHole = holeStats.find((h) => h.hole === selectedHole)
+            if (!dgHole || (dgHole.avg === null && dgHole.birdie_pct === null)) return null
+            return (
+              <div className="flex gap-3 mt-1.5 flex-wrap">
+                {dgHole.avg !== null && (
+                  <span className="text-[11px] text-[#8ab89a]">
+                    Avg {dgHole.avg > 0 ? '+' : ''}{dgHole.avg.toFixed(2)} vs par
+                  </span>
+                )}
+                {dgHole.birdie_pct !== null && (
+                  <span className="text-[11px] text-[#4adb7a]">
+                    {Math.round(dgHole.birdie_pct * 100)}% birdie
+                  </span>
+                )}
+                {dgHole.par_pct !== null && (
+                  <span className="text-[11px] text-[#8ab89a]">
+                    {Math.round(dgHole.par_pct * 100)}% par
+                  </span>
+                )}
+                {dgHole.bogey_pct !== null && (
+                  <span className="text-[11px] text-[#e05555]">
+                    {Math.round(dgHole.bogey_pct * 100)}% bogey
+                  </span>
+                )}
+              </div>
+            )
+          })()}
           {currentPick && (
-            <div className="mt-1 text-[11px] text-[#c9a227]">
-              Current pick: {players.find((p) => p.id === currentPick.player_id)?.name} · £{currentPick.price_paid}m
-              {currentPick.is_locked && ' · 🔒 Locked'}
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-[11px] text-[#c9a227] flex-1">
+                Current pick: {players.find((p) => p.id === currentPick.player_id)?.name} · £{currentPick.price_paid}m
+                {currentPick.is_locked && ' · 🔒 Locked'}
+              </span>
+              {!currentPick.is_locked && (
+                <button
+                  onClick={() => handleRemovePick(selectedHole)}
+                  className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold text-[#e05555] border border-[#e05555]/40 active:bg-[#e05555]/10"
+                >
+                  ✕ Remove
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -254,9 +384,11 @@ export default function PickScreen({
         remainingBudget={remaining}
         currentPickPlayerId={currentPick?.player_id ?? null}
         currentPickPricePaid={currentPick?.price_paid ?? 0}
+        currentPickLocked={currentPick?.is_locked ?? false}
         postmanPlayerId={postmanPlayerId}
         completedHoleScores={lockedOutMap}
         teeTimes={teeTimes}
+        winPctMap={winPctMap}
         onPick={handlePick}
       />
 
@@ -278,6 +410,7 @@ export default function PickScreen({
             </div>
             <div className="overflow-y-auto flex-1 divide-y divide-[#1a3d2b]">
               {[...players]
+                .filter((p) => p.status === 'active')
                 .sort((a, b) => a.current_price - b.current_price)
                 .map((player) => (
                   <button

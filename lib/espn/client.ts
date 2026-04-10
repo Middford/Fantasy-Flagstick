@@ -3,6 +3,22 @@
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga'
 
+// Per-hole score nested inside a round entry
+export interface EspnHoleScore {
+  period: number          // hole number (1–18)
+  value?: number          // raw strokes (4.0)
+  displayValue?: string   // '4'
+  scoreType?: { displayValue?: string }  // 'E', '-1', '+1'
+}
+
+// Round-level linescore entry — each competitor has one per round
+export interface EspnRoundLinescore {
+  period: number                  // round number (1–4)
+  value?: number                  // round total strokes
+  displayValue?: string           // '+2', '-5', etc.
+  linescores?: EspnHoleScore[]    // per-hole data (only populated for started rounds)
+}
+
 export interface EspnCompetitor {
   id: string
   athlete: {
@@ -10,12 +26,8 @@ export interface EspnCompetitor {
     displayName: string   // "Scottie Scheffler"
     shortName: string     // "S. Scheffler"
   }
-  score: string           // "E", "+3", "-2"
-  linescores?: Array<{
-    period: number        // hole number
-    value?: string        // score on hole — absent pre-round
-    type?: string
-  }>
+  score: string           // "E", "+3", "-2" — overall tournament vs par
+  linescores?: EspnRoundLinescore[]
 }
 
 export interface EspnScoreboard {
@@ -63,25 +75,33 @@ export async function getLeaderboard(eventId: string): Promise<EspnLeaderboard> 
 }
 
 /**
- * Parse ESPN competitor linescores into hole-by-hole data
+ * Parse ESPN competitor linescores into hole-by-hole data for a specific round.
+ * ESPN structure: competitor.linescores[i] = round entry (period = round number)
+ *                 competitor.linescores[i].linescores[j] = hole entry (period = hole number)
  * Returns map of hole_number → {score, score_vs_par, is_water}
  */
 export function parseHoleScores(
   competitor: EspnCompetitor,
-  holePars: Record<number, number>
+  holePars: Record<number, number>,
+  currentRound = 1
 ): Map<number, { score: number; score_vs_par: number; is_water: boolean }> {
   const result = new Map()
 
   if (!competitor.linescores) return result
 
-  competitor.linescores.forEach((ls) => {
-    const holeNum = ls.period
+  // Find the round entry for the current round
+  const roundEntry = competitor.linescores.find((ls) => ls.period === currentRound)
+  if (!roundEntry?.linescores?.length) return result
+
+  // Iterate per-hole data inside the round entry
+  roundEntry.linescores.forEach((hole) => {
+    const holeNum = hole.period  // hole number 1–18
     const par = holePars[holeNum]
     if (!par) return
 
-    const scoreStr = ls.value
-    // Pre-round linescores have no value; ESPN uses 'F'/'-' for non-numeric
-    if (!scoreStr || scoreStr === 'F' || scoreStr === '-') return
+    // Use displayValue (string like '4') — value is a float (4.0)
+    const scoreStr = hole.displayValue ?? (hole.value != null ? String(Math.round(hole.value)) : undefined)
+    if (!scoreStr || scoreStr === '-' || scoreStr === '--' || scoreStr === 'F') return
 
     const score = parseInt(scoreStr, 10)
     if (isNaN(score)) return
@@ -89,11 +109,26 @@ export function parseHoleScores(
     result.set(holeNum, {
       score,
       score_vs_par: score - par,
-      is_water: false,  // ESPN doesn't provide water hazard info; inferred separately
+      is_water: false,
     })
   })
 
   return result
+}
+
+/**
+ * Count how many holes a competitor has completed in the current round.
+ * Looks at the nested per-hole linescores inside the active round entry.
+ */
+export function countHolesCompleted(competitor: EspnCompetitor, currentRound = 1): number {
+  if (!competitor.linescores) return 0
+  const roundEntry = competitor.linescores.find((ls) => ls.period === currentRound)
+  if (!roundEntry?.linescores?.length) return 0
+  // Count holes with an actual numeric score
+  return roundEntry.linescores.filter((h) => {
+    const v = h.displayValue ?? (h.value != null ? String(Math.round(h.value)) : undefined)
+    return v && v !== '-' && v !== '--' && v !== 'F' && !isNaN(parseInt(v, 10))
+  }).length
 }
 
 /** Get the active Masters event ID from ESPN scoreboard */
