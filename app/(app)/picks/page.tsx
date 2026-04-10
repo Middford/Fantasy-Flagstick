@@ -5,6 +5,7 @@ import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/
 import { dataGolf } from '@/lib/datagolf/client'
 import PickScreen from '@/components/picks/PickScreen'
 import RoundTabs from '@/components/picks/RoundTabs'
+import ShareButton from '@/components/ui/ShareButton'
 
 // Convert DataGolf "H:MM" time string (Augusta EDT, UTC-4) to BST display
 function formatEdtToBst(timeStr: string | undefined): string | null {
@@ -45,17 +46,22 @@ export default async function PicksPage({
     )
   }
 
-  // Show all rounds up to and including current_round (past rounds viewable, future hidden)
-  // R3/R4 only appear once current_round has actually advanced to 3/4 via sync-scores auto-advance
+  // Show all completed/current rounds. Also show the NEXT round once the cut has been made
+  // (any player marked 'cut' means the field is confirmed for R3/R4).
+  const cutMade = players?.some((p) => p.status === 'cut') ?? false
   const availableRounds = Array.from(
     { length: tournament.current_round },
     (_, i) => i + 1
-  ).filter((r) => r >= 1 && r <= 4)
+  )
+  if (cutMade && tournament.current_round < 4) {
+    availableRounds.push(tournament.current_round + 1)
+  }
+  const filteredRounds = availableRounds.filter((r) => r >= 1 && r <= 4)
 
   // Resolve selected round from URL param (default to current_round)
   const { round: roundParam } = await searchParams
   const requestedRound = roundParam ? parseInt(roundParam, 10) : tournament.current_round
-  const selectedRound = availableRounds.includes(requestedRound)
+  const selectedRound = filteredRounds.includes(requestedRound)
     ? requestedRound
     : tournament.current_round
 
@@ -169,21 +175,25 @@ export default async function PicksPage({
               Round {selectedRound} · {tournament.course_short}
             </p>
           </div>
-          <div className="text-right">
+          <div className="flex items-center gap-3">
             <div className="text-xs text-[#8ab89a]">
               {(picks ?? []).length}/18 holes picked
             </div>
+            <ShareButton
+              url={`/share/${userId}/${selectedRound}`}
+              title={`My R${selectedRound} picks — Fantasy Flagstick`}
+            />
           </div>
         </div>
       </header>
 
       {/* Round tabs — only show if more than one round available */}
-      {availableRounds.length > 1 && (
+      {filteredRounds.length > 1 && (
         <Suspense>
           <RoundTabs
             currentRound={tournament.current_round}
             selectedRound={selectedRound}
-            availableRounds={availableRounds}
+            availableRounds={filteredRounds}
           />
         </Suspense>
       )}
