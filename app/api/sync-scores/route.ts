@@ -64,32 +64,37 @@ export async function GET() {
 
     // ── Auto-advance round ─────────────────────────────────────────────────────
     // Two triggers:
-    // 1. A later round has per-hole data (round is IN progress) → advance to that round
-    // 2. The current round is "complete": ≥30 players have all 18 holes confirmed
+    // 1. A later round has REAL hole data (≥3 non-zero scores) → advance to that round
+    // 2. The current round is "complete": ≥50 players have all 18 holes confirmed
     //    → advance to current_round + 1 (handles the gap between rounds)
+    // Note: ESPN creates R3/R4 linescore stubs BEFORE the round starts (all zeros).
+    // We must check for actual non-zero hole values, not just array length.
     let activeSyncRound = tournament.current_round
     {
-      // Count players with 18 confirmed holes per round
       const completeHoleCounts = new Map<number, number>()
       let maxRoundWithLiveData = 1
       for (const c of competitors) {
         for (const ls of (c.linescores ?? [])) {
-          if (ls.linescores && ls.linescores.length > 0) {
-            if (ls.period > maxRoundWithLiveData) maxRoundWithLiveData = ls.period
+          // Only count as "live" if at least 3 holes have non-zero scores
+          // (ESPN stubs have linescores arrays but all values are 0 or null)
+          const realHoles = (ls.linescores ?? []).filter((h: { value?: number }) => h.value != null && h.value > 0).length
+          if (realHoles >= 3 && ls.period > maxRoundWithLiveData) {
+            maxRoundWithLiveData = ls.period
           }
-          if ((ls.linescores?.length ?? 0) >= 18) {
+          if (realHoles >= 18) {
             completeHoleCounts.set(ls.period, (completeHoleCounts.get(ls.period) ?? 0) + 1)
           }
         }
       }
 
-      // Determine the round ESPN is actually on
-      const currentRoundComplete = (completeHoleCounts.get(activeSyncRound) ?? 0) >= 30
+      // ≥50 players must have all 18 holes to consider round complete
+      // (was 30, too low — triggered prematurely)
+      const currentRoundComplete = (completeHoleCounts.get(activeSyncRound) ?? 0) >= 50
       const nextRound = activeSyncRound + 1
       const targetRound = maxRoundWithLiveData > activeSyncRound
-        ? maxRoundWithLiveData                          // live holes in a later round
+        ? maxRoundWithLiveData
         : (currentRoundComplete && nextRound <= 4)
-          ? nextRound                                   // current round just finished
+          ? nextRound
           : activeSyncRound
 
       if (targetRound > activeSyncRound) {
@@ -153,59 +158,91 @@ export async function GET() {
         console.log(`Marked ${wdPlayerIds.length} players as withdrawn`)
       }
 
-      // Cut detection from DataGolf in-play predictions (only after R2+)
-      if (activeSyncRound >= 3 && makeCutByPlayer.size > 0) {
-        const cutPlayerIds: string[] = []
-        for (const player of players) {
-          if (player.status !== 'active') continue
-          const makeCut = makeCutByPlayer.get(player.name_full.toLowerCase())
-            ?? makeCutByPlayer.get(player.name.toLowerCase())
-          if (makeCut != null && makeCut <= 0.01) cutPlayerIds.push(player.id)
+      // Cut detection — two methods:
+      // 1. After R2 complete: Masters uses top-50-and-ties. Find the 50th-best score
+      //    from ESPN competitors, everyone worse than that is cut.
+      // 2. DataGolf fallback: make_cut ≈ 0 (R3+)
+      if (activeSyncRound >= 2) {
+        // Parse all ESPN total scores
+        const espnScores = competitors.map((c) => {
+          const s = (c.score ?? '').trim()
+          if (s === 'E') return 0
+          const n = parseInt(s, 10)
+          return isNaN(n) ? null : n
+        }).filter((s): s is number => s !== null)
+        espnScores.sort((a, b) => a - b)
+
+        // Masters cut: top 50 and ties after R2
+        // The 50th score (index 49) defines the cut line; all ties at that score also make it
+        const cutLine = espnScores.length >= 50 ? espnScores[49] : null
+
+        // Only apply cut if R2 is actually complete (≥50 players with 18 R2 holes)
+        const r2Complete = competitors.filter((c) => {
+          const r2 = (c.linescores ?? []).find((ls: { period: number }) => ls.period === 2)
+          const realHoles = (r2?.linescores ?? []).filter((h: { value?: number }) => h.value != null && h.value > 0).length
+          return realHoles >= 18
+        }).length >= 50
+
+        if (cutLine != null && r2Complete) {
+          const cutPlayerIds: string[] = []
+          for (const competitor of competitors) {
+            const s = (competitor.score ?? '').trim()
+            const totalToPar = s === 'E' ? 0 : parseInt(s, 10)
+            if (isNaN(totalToPar) || totalToPar <= cutLine) continue
+
+            const espnName = competitor.athlete?.displayName ?? ''
+            const espnShort = competitor.athlete?.shortName ?? ''
+            const player = players.find(
+              (p) =>
+                p.espn_id === competitor.id ||
+                (espnName && p.name_full.toLowerCase() === espnName.toLowerCase()) ||
+                (espnShort && p.name.toLowerCase() === espnShort.toLowerCase())
+            )
+            if (player && player.status === 'active') cutPlayerIds.push(player.id)
+          }
+          if (cutPlayerIds.length > 0) {
+            await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
+            console.log(`Marked ${cutPlayerIds.length} players as cut (ESPN cut line: +${cutLine})`)
+          }
         }
-        if (cutPlayerIds.length > 0) {
-          await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
-          console.log(`Marked ${cutPlayerIds.length} players as cut (DataGolf)`)
+
+        // DataGolf fallback for R3+
+        if (activeSyncRound >= 3 && makeCutByPlayer.size > 0) {
+          const cutPlayerIds: string[] = []
+          for (const player of players) {
+            if (player.status !== 'active') continue
+            const makeCut = makeCutByPlayer.get(player.name_full.toLowerCase())
+              ?? makeCutByPlayer.get(player.name.toLowerCase())
+            if (makeCut != null && makeCut <= 0.01) cutPlayerIds.push(player.id)
+          }
+          if (cutPlayerIds.length > 0) {
+            await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
+            console.log(`Marked ${cutPlayerIds.length} players as cut (DataGolf)`)
+          }
         }
       }
     }
 
 
 
-    // ── Bulk price refresh: relative performance vs field, tier-weighted ─────
-    // origPrice = price_r1 (set once at tournament setup).
-    //   If price_r1 is null (column unpopulated), use 8 as neutral midpoint — do NOT
-    //   use current_price which may be corrupted from earlier pricing bugs.
-    //
-    // fieldRelative = fieldAvgTotal - playerTotal  (positive = beating the field)
-    // tier = (origPrice - 4) / 12  (0 = £4m, 1 = £15m from seed-field range)
-    // weight (asymmetric):
-    //   outperforming → 1.5 - tier  (cheap players rewarded more for beating field)
-    //   underperforming → 0.5 + tier  (expensive players penalised more for trailing)
-    //
-    // Scale: 0.15 — conservative, so a player +10 vs field moves ~£1.5–2m
-    // Cap: ±£4m absolute from origPrice, hard ceiling £16m
-    //   → a £4m player maxes out at £8m even if they win by 10 shots
-    //   → reaching £16m requires starting at £12m+ AND dominating the field
+    // ── Bulk price refresh: absolute score, tier-weighted ─────────────────────
+    // Absolute total score drives price: each stroke = £0.5m base impact.
+    // Tier-asymmetric weight penalises expensive players more for bad play,
+    // rewards cheap players more for good play.
+    // Cap: ±£4m from price_r1, hard ceiling £16m, hard floor £1m.
     {
-      const startedPlayers = players.filter((p) => (p.total_score ?? 0) !== 0 || p.holes_completed > 0)
-      const fieldAvgTotal = startedPlayers.length > 0
-        ? startedPlayers.reduce((sum, p) => sum + (p.total_score ?? 0), 0) / startedPlayers.length
-        : 0
-
       for (const player of players) {
-        // price_r1 null → use neutral £8m rather than current_price (which may be corrupted)
         const origPrice = player.price_r1 ?? 8
         const totalScore = player.total_score ?? 0
-        const fieldRelative = fieldAvgTotal - totalScore  // positive = better than field
+        const rawImpact = -totalScore * 0.5  // £0.5m per stroke under/over par
 
         const tier = Math.max(0, Math.min(1, (origPrice - 4) / 12))
-        const weight = fieldRelative >= 0
-          ? (1.5 - tier)
-          : (0.5 + tier)
+        const weight = rawImpact >= 0
+          ? (1.5 - tier)   // outperforming: cheap → 1.5x, expensive → 0.5x
+          : (0.5 + tier)   // underperforming: expensive → 1.5x, cheap → 0.5x
 
-        const adj = fieldRelative * weight * 0.15
+        const adj = rawImpact * weight
 
-        // Absolute ±£4m cap from original, hard ceiling £16m
         const floor = Math.max(1, origPrice - 4)
         const ceiling = Math.min(16, origPrice + 4)
         const newPrice = Math.max(floor, Math.min(ceiling, Math.round((origPrice + adj) * 2) / 2))
