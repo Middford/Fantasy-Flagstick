@@ -172,15 +172,20 @@ export async function GET() {
 
 
     // ── Bulk price refresh: relative performance vs field, tier-weighted ─────
-    // origPrice = price_r1 (set once at tournament setup, never drifts)
+    // origPrice = price_r1 (set once at tournament setup).
+    //   If price_r1 is null (column unpopulated), use 8 as neutral midpoint — do NOT
+    //   use current_price which may be corrupted from earlier pricing bugs.
+    //
     // fieldRelative = fieldAvgTotal - playerTotal  (positive = beating the field)
-    // tier = (origPrice - 4) / 12  (0 = £4m floor, 1 = £16m ceiling from seed-field)
-    // weight = outperforming ? (1.5 - tier) : (0.5 + tier)
-    //   → top player outperforming:     weight ~0.5  (expected, small rise)
-    //   → top player underperforming:   weight ~1.5  (unexpected, bigger drop)
-    //   → cheap player outperforming:   weight ~1.5  (unexpected, bigger rise)
-    //   → cheap player underperforming: weight ~0.5  (expected, small drop)
-    // newPrice clamped to [origPrice × 0.5, origPrice × 1.5]  (max ±50% swing)
+    // tier = (origPrice - 4) / 12  (0 = £4m, 1 = £15m from seed-field range)
+    // weight (asymmetric):
+    //   outperforming → 1.5 - tier  (cheap players rewarded more for beating field)
+    //   underperforming → 0.5 + tier  (expensive players penalised more for trailing)
+    //
+    // Scale: 0.15 — conservative, so a player +10 vs field moves ~£1.5–2m
+    // Cap: ±£4m absolute from origPrice, hard ceiling £16m
+    //   → a £4m player maxes out at £8m even if they win by 10 shots
+    //   → reaching £16m requires starting at £12m+ AND dominating the field
     {
       const startedPlayers = players.filter((p) => (p.total_score ?? 0) !== 0 || p.holes_completed > 0)
       const fieldAvgTotal = startedPlayers.length > 0
@@ -188,19 +193,21 @@ export async function GET() {
         : 0
 
       for (const player of players) {
-        const origPrice = player.price_r1 ?? player.current_price
+        // price_r1 null → use neutral £8m rather than current_price (which may be corrupted)
+        const origPrice = player.price_r1 ?? 8
         const totalScore = player.total_score ?? 0
         const fieldRelative = fieldAvgTotal - totalScore  // positive = better than field
 
         const tier = Math.max(0, Math.min(1, (origPrice - 4) / 12))
         const weight = fieldRelative >= 0
-          ? (1.5 - tier)   // outperforming: cheap players rewarded more
-          : (0.5 + tier)   // underperforming: expensive players penalised more
+          ? (1.5 - tier)
+          : (0.5 + tier)
 
-        const adj = fieldRelative * weight * 0.4
+        const adj = fieldRelative * weight * 0.15
 
-        const floor = Math.round(origPrice * 0.5 * 2) / 2
-        const ceiling = Math.min(20, Math.round(origPrice * 1.5 * 2) / 2)
+        // Absolute ±£4m cap from original, hard ceiling £16m
+        const floor = Math.max(1, origPrice - 4)
+        const ceiling = Math.min(16, origPrice + 4)
         const newPrice = Math.max(floor, Math.min(ceiling, Math.round((origPrice + adj) * 2) / 2))
 
         if (newPrice === player.current_price) continue
