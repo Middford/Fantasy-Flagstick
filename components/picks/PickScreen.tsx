@@ -80,11 +80,13 @@ export default function PickScreen({
   players.forEach((p) => usesMap.set(p.id, getPlayerUseCount(picks, p.id, round)))
 
   // A player is locked out for hole N if they've already completed it.
-  // players.holes_completed is cumulative for the round (holes played in order 1-18).
+  // Only applies to the current live round — future rounds have no lockouts.
   const lockedOutMap = new Map<string, boolean>()
-  players.forEach((p) => {
-    lockedOutMap.set(p.id, p.holes_completed >= selectedHole)
-  })
+  if (round === currentRound) {
+    players.forEach((p) => {
+      lockedOutMap.set(p.id, p.holes_completed >= selectedHole)
+    })
+  }
 
   // Current pick for selected hole
   const currentPick = roundPicks.find((p) => p.hole_number === selectedHole)
