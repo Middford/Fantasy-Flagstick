@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       .eq('league_id', leagueId),
     supabase
       .from('picks')
-      .select('user_id, player_id, score_vs_par, round, is_postman')
+      .select('user_id, player_id, score_vs_par, round, hole_number, is_postman')
       .eq('league_id', leagueId)
       .not('score_vs_par', 'is', null),
     supabase
@@ -75,12 +75,33 @@ export async function GET(req: Request) {
   }
 
   // Aggregate scores across ALL rounds — Postman doubles the one flagged pick
+  // Track which holes each user has confirmed picks for (to penalize gaps)
   const userScores = new Map<string, { score: number; holes: number }>()
+  const userHolesByRound = new Map<string, Map<number, Set<number>>>() // userId → round → Set<holeNumber>
   picks?.forEach((pick) => {
     const base = pick.score_vs_par ?? 0
     const score = pick.is_postman ? base * 2 : base
     const existing = userScores.get(pick.user_id) ?? { score: 0, holes: 0 }
     userScores.set(pick.user_id, { score: existing.score + score, holes: existing.holes + 1 })
+
+    // Track holes per round
+    if (!userHolesByRound.has(pick.user_id)) userHolesByRound.set(pick.user_id, new Map())
+    const byRound = userHolesByRound.get(pick.user_id)!
+    if (!byRound.has(pick.round)) byRound.set(pick.round, new Set())
+    byRound.get(pick.round)!.add(pick.hole_number)
+  })
+
+  // Penalty: +2 (double bogey) for each unpicked hole in rounds where the user has picks
+  userHolesByRound.forEach((byRound, usrId) => {
+    const existing = userScores.get(usrId) ?? { score: 0, holes: 0 }
+    byRound.forEach((holes) => {
+      const missed = 18 - holes.size
+      if (missed > 0) {
+        existing.score += missed * 2
+        existing.holes += missed
+      }
+    })
+    userScores.set(usrId, existing)
   })
 
   const entries = members.map((m) => ({

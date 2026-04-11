@@ -76,7 +76,7 @@ export default async function HomePage() {
     leagueId
       ? svc
           .from('picks')
-          .select('user_id, player_id, score_vs_par, round, is_postman')
+          .select('user_id, player_id, score_vs_par, round, hole_number, is_postman')
           .eq('league_id', leagueId)
           .not('score_vs_par', 'is', null)
       : Promise.resolve({ data: null }),
@@ -113,12 +113,25 @@ export default async function HomePage() {
   let positionDisplay = '—'
   if (leagueId && leagueMembers?.length) {
     const memberScores = new Map<string, number>()
+    const memberHolesByRound = new Map<string, Map<number, Set<number>>>()
     leagueMembers.forEach((m) => memberScores.set(m.user_id, 0))
     allLeaguePicks?.forEach((pick) => {
       if (!memberScores.has(pick.user_id)) return
       const base = pick.score_vs_par ?? 0
       const score = pick.is_postman ? base * 2 : base
       memberScores.set(pick.user_id, (memberScores.get(pick.user_id) ?? 0) + score)
+
+      if (!memberHolesByRound.has(pick.user_id)) memberHolesByRound.set(pick.user_id, new Map())
+      const byRound = memberHolesByRound.get(pick.user_id)!
+      if (!byRound.has(pick.round)) byRound.set(pick.round, new Set())
+      byRound.get(pick.round)!.add(pick.hole_number)
+    })
+    // +2 penalty per unpicked hole in rounds where user has picks
+    memberHolesByRound.forEach((byRound, uid) => {
+      byRound.forEach((holes) => {
+        const missed = 18 - holes.size
+        if (missed > 0) memberScores.set(uid, (memberScores.get(uid) ?? 0) + missed * 2)
+      })
     })
 
     const sorted = [...memberScores.entries()].sort((a, b) => a[1] - b[1])
