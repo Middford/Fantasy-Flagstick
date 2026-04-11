@@ -84,28 +84,21 @@ export default function RoundLeaderboard({
         <span className="w-6 text-center">#</span>
         <span className="flex-1 ml-3">Player</span>
         <span className="w-10 text-center">Thru</span>
-        <span className="w-10 text-center">Today</span>
         <span className="w-10 text-right">Total</span>
       </div>
       <div className="divide-y divide-[#1a3d2b]">
-        {players.slice(0, 10).map((p, i) => {
-          const totalNum = p.totalScore === 'E' ? 0 : parseInt(p.totalScore) || 0
-          return (
+        {players.slice(0, 10).map((p, i) => (
             <div key={i} className="flex items-center px-4 py-1.5">
               <span className="text-xs text-[#5a7a65] w-6 text-center">{i + 1}</span>
               <span className="text-xs text-white flex-1 ml-3 truncate">{p.name}</span>
               <span className="text-[10px] text-[#5a7a65] w-10 text-center">
                 {p.holesCompleted === 18 ? 'F' : p.holesCompleted}
               </span>
-              <span className={`text-xs font-score font-bold w-10 text-center ${p.roundScore < 0 ? 'text-[#4adb7a]' : p.roundScore > 0 ? 'text-[#e05555]' : 'text-white'}`}>
+              <span className={`text-xs font-score font-bold w-10 text-right ${p.roundScore < 0 ? 'text-[#4adb7a]' : p.roundScore > 0 ? 'text-[#e05555]' : 'text-white'}`}>
                 {scoreLabel(p.roundScore)}
               </span>
-              <span className={`text-xs font-score w-10 text-right ${totalNum < 0 ? 'text-[#4adb7a]' : totalNum > 0 ? 'text-[#e05555]' : 'text-white'}`}>
-                {p.totalScore}
-              </span>
             </div>
-          )
-        })}
+          ))}
       </div>
     </div>
   )
