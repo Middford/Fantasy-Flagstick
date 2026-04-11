@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
-import { applyPriceUpdate, calculatePerformanceAdjustment, calculateDemandAdjustment, getPriceDirection } from '@/lib/pricing/engine'
+import { applyPriceUpdate, calculatePerformanceAdjustment, getPriceDirection } from '@/lib/pricing/engine'
 import { dataGolf } from '@/lib/datagolf/client'
 
 // ESPN never shows "CUT" as a score string — cut players just get numeric scores.
@@ -162,18 +162,7 @@ export async function GET() {
       }
     }
 
-    // Get total pick counts per player for demand calculation
-    const { data: allPicks } = await supabase
-      .from('picks')
-      .select('player_id')
-      .eq('tournament_id', tournament.id)
-      .eq('round', activeSyncRound)
 
-    const totalPicks = allPicks?.length ?? 0
-    const pickCounts = new Map<string, number>()
-    allPicks?.forEach((p) => {
-      pickCounts.set(p.player_id, (pickCounts.get(p.player_id) ?? 0) + 1)
-    })
 
     // ── Batch fetch already-confirmed hole scores ──────────────────────────────
     // One query replaces N×18 individual SELECTs.
@@ -289,7 +278,7 @@ export async function GET() {
       // ── Per-player stats refresh ───────────────────────────────────────────
       // Runs when: new holes written, OR stats were stale (holes_completed mismatch).
       if (newHolesWritten > 0 || statsStale) {
-        const [{ data: roundScores }, { data: allRoundScores }] = await Promise.all([
+        const [{ data: roundScores }, { data: allRoundScores }, { data: roundStartPriceRow }] = await Promise.all([
           supabase
             .from('hole_scores')
             .select('score_vs_par')
@@ -303,16 +292,28 @@ export async function GET() {
             .eq('tournament_id', tournament.id)
             .eq('player_id', player.id)
             .eq('confirmed', true),
+          // Get the price recorded at the start of this round (earliest price_history entry)
+          // This is the stable base — we calculate from this, not from the drifting current_price
+          supabase
+            .from('price_history')
+            .select('price')
+            .eq('player_id', player.id)
+            .eq('round', activeSyncRound)
+            .order('hole_number', { ascending: true })
+            .limit(1)
+            .maybeSingle(),
         ])
 
         const currentRoundScore = roundScores?.reduce((sum, h) => sum + (h.score_vs_par ?? 0), 0) ?? 0
         const holesCompleted = roundScores?.length ?? 0
         const totalScore = allRoundScores?.reduce((sum, h) => sum + (h.score_vs_par ?? 0), 0) ?? 0
 
-        const pickPct = totalPicks > 0 ? (pickCounts.get(player.id) ?? 0) / totalPicks : 0
-        const demandAdj = calculateDemandAdjustment(pickPct)
-        const perfAdj = calculatePerformanceAdjustment(player.current_price, currentRoundScore, holesCompleted)
-        const newPrice = applyPriceUpdate(player.current_price, perfAdj, demandAdj, 0)
+        // Base price = price at round start (from price_history), or current_price if no history yet
+        const basePrice = roundStartPriceRow?.price ?? player.current_price
+
+        // Calculate new price from stable base — avoids compounding on every hole
+        // Demand adjustment is a one-time factor built into the base, not re-applied per hole
+        const newPrice = applyPriceUpdate(basePrice, calculatePerformanceAdjustment(basePrice, currentRoundScore, holesCompleted), 0, 0)
         const direction = getPriceDirection(player.current_price, newPrice)
 
         await supabase

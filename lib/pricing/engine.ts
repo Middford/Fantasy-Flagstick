@@ -23,42 +23,54 @@ export function calculateBasePrice(winProbability: number): number {
 // MID-ROUND DYNAMIC ADJUSTMENTS
 // ============================================================
 
-const PRICE_TIER_MULTIPLIERS = [
-  { max: 3,  multiplier: 1.5 },
-  { max: 6,  multiplier: 1.0 },
-  { max: 10, multiplier: 0.75 },
-  { max: 15, multiplier: 0.5 },
-  { max: 99, multiplier: 0.25 },
-]
-
-function getMultiplier(currentPrice: number): number {
-  return (
-    PRICE_TIER_MULTIPLIERS.find((t) => currentPrice <= t.max)?.multiplier ?? 0.25
-  )
+/**
+ * Calculate price from a base price + cumulative round performance.
+ *
+ * Design goals:
+ * - Called once per sync with the player's BASE price (price at round start)
+ *   and their TOTAL score vs par for the round so far
+ * - Each stroke under par adds ~£0.3m, each stroke over par subtracts ~£0.3m
+ * - Confidence weight: adjustments are proportional to holes completed so
+ *   early-round scores have less impact than late-round scores
+ * - Max swing: ±£6m over a full round (e.g. shooting -8 from a £10 base → ~£14)
+ *
+ * IMPORTANT: pass `basePrice` (the price BEFORE this round started), not the
+ * current live price — otherwise adjustments compound on themselves.
+ */
+export function calculateRoundPrice(
+  basePrice: number,
+  currentRoundScore: number,
+  holesCompleted: number
+): number {
+  if (holesCompleted === 0) return basePrice
+  // £0.3m per stroke, scaled by progress through round
+  const progressWeight = holesCompleted / 18
+  const adjustment = -currentRoundScore * 0.3 * progressWeight
+  return basePrice + adjustment
 }
 
 /**
- * Performance adjustment — fires on every hole completion.
- * Under par (negative score) increases price, over par decreases.
+ * Demand adjustment — one-time bump applied when round opens.
+ * NOT applied per-hole (would stack to insane values).
+ * Called once at round start to set the opening price.
+ */
+export function calculateDemandAdjustment(pickPercentage: number): number {
+  if (pickPercentage >= 0.40) return 1.0
+  if (pickPercentage >= 0.25) return 0.5
+  if (pickPercentage >= 0.10) return 0.25
+  return 0
+}
+
+/**
+ * @deprecated Use calculateRoundPrice instead.
+ * Kept for API compatibility — maps to calculateRoundPrice semantics.
  */
 export function calculatePerformanceAdjustment(
-  currentPrice: number,
+  basePrice: number,
   scoreVsPar: number,
   holesCompleted: number
 ): number {
-  const multiplier = getMultiplier(currentPrice)
-  const confidenceWeight = Math.min(holesCompleted / 18, 1)
-  return -scoreVsPar * multiplier * confidenceWeight
-}
-
-/**
- * Demand adjustment — based on % of active users picking this player.
- */
-export function calculateDemandAdjustment(pickPercentage: number): number {
-  if (pickPercentage >= 0.40) return 3.0
-  if (pickPercentage >= 0.25) return 1.5
-  if (pickPercentage >= 0.10) return 0.5
-  return 0
+  return calculateRoundPrice(basePrice, scoreVsPar, holesCompleted) - basePrice
 }
 
 /**
