@@ -220,7 +220,7 @@ export async function GET() {
 
         const floor = Math.max(1, origPrice - 4)
         const ceiling = Math.min(16, origPrice + 4)
-        const newPrice = Math.max(floor, Math.min(ceiling, Math.round((origPrice + adj) * 2) / 2))
+        const newPrice = Math.max(floor, Math.min(ceiling, Math.round(origPrice + adj)))
 
         // Debug: track first 5 price changes and Jason Day specifically
         if (priceDebug.length < 5 || player.name_full.includes('Day')) {
@@ -230,13 +230,17 @@ export async function GET() {
         if (newPrice === player.current_price) continue
 
         const direction = getPriceDirection(player.current_price, newPrice)
-        await supabase
+        const { error: priceErr } = await supabase
           .from('players')
           .update({ current_price: newPrice, price_direction: direction })
           .eq('id', player.id)
 
-        player.current_price = newPrice
-        pricesChanged++
+        if (priceErr) {
+          console.error(`Price update failed for ${player.name_full}:`, priceErr.message)
+        } else {
+          player.current_price = newPrice
+          pricesChanged++
+        }
       }
     }
 
