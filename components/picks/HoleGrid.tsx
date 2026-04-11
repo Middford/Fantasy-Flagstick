@@ -40,7 +40,7 @@ export default function HoleGrid({
         <div key={rowIdx} className="flex gap-1.5">
           {rowHoles.map((hole) => {
             const pick = pickMap.get(hole.number)
-            const isPostman = pick?.player_id === postmanPlayerId && postmanPlayerId !== null
+            const isPostman = pick?.is_postman === true
 
             return (
               <div key={hole.number} className="flex-1">

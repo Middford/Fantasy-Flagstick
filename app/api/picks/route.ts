@@ -121,6 +121,48 @@ export async function DELETE(req: Request) {
   return NextResponse.json({ picks: picks ?? [] })
 }
 
+// PATCH — update a single pick (e.g. set is_postman)
+export async function PATCH(req: Request) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const body = await req.json()
+  const { pickId, is_postman } = body as { pickId?: string; is_postman?: boolean }
+  if (!pickId) return NextResponse.json({ error: 'Missing pickId' }, { status: 400 })
+
+  const supabase = createServiceClient()
+
+  // Verify pick belongs to this user
+  const { data: pick } = await supabase
+    .from('picks')
+    .select('id, user_id, league_id, round')
+    .eq('id', pickId)
+    .single()
+
+  if (!pick || pick.user_id !== userId) {
+    return NextResponse.json({ error: 'Pick not found' }, { status: 404 })
+  }
+
+  // Clear any existing postman on other picks in this round (only one per round)
+  if (is_postman) {
+    await supabase
+      .from('picks')
+      .update({ is_postman: false })
+      .eq('user_id', userId)
+      .eq('league_id', pick.league_id)
+      .eq('round', pick.round)
+      .eq('is_postman', true)
+  }
+
+  const { error } = await supabase
+    .from('picks')
+    .update({ is_postman: is_postman ?? false })
+    .eq('id', pickId)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
 // GET — fetch all picks for a round
 export async function GET(req: Request) {
   const { userId } = await auth()

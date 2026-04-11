@@ -18,24 +18,19 @@ export function getPostmanPlayerId(chips: Chips, round: number): string | null {
 
 /**
  * Score a single pick — applies Postman doubling if applicable.
+ * Postman doubles ONE specific hole (the pick with is_postman = true).
  * Returns effective score vs par.
  * Returns null if score not yet confirmed (pending hole).
  */
 export function scorePick(
   pick: Pick,
-  postmanPlayerId: string | null
 ): { effectiveScore: number | null; isPending: boolean } {
   if (pick.score_vs_par === null) {
     return { effectiveScore: null, isPending: true }
   }
 
-  const baseScore = pick.is_mulligan_used
-    ? pick.score_vs_par  // Mulligan replacement score already stored on pick
-    : pick.score_vs_par
-
-  // Apply Postman doubling if this player is the Postman for this round
-  const isPostman = postmanPlayerId !== null && pick.player_id === postmanPlayerId
-  const effectiveScore = isPostman ? baseScore * 2 : baseScore
+  const baseScore = pick.score_vs_par
+  const effectiveScore = pick.is_postman ? baseScore * 2 : baseScore
 
   return { effectiveScore, isPending: false }
 }
@@ -53,13 +48,12 @@ export function calculateRoundScore(
   holesConfirmed: number
   holesPending: number
 } {
-  const postmanId = getPostmanPlayerId(chips, round)
   let totalScore = 0
   let holesConfirmed = 0
   let holesPending = 0
 
   picks.forEach((pick) => {
-    const { effectiveScore, isPending } = scorePick(pick, postmanId)
+    const { effectiveScore, isPending } = scorePick(pick)
     if (isPending) {
       holesPending++
     } else {

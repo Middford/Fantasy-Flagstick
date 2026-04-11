@@ -88,7 +88,7 @@ export default function ChipsPanel({
             type: 'postman',
             label: 'Postman',
             emoji: '📮',
-            description: 'Choose one player whose score is doubled on every hole you pick them this round. Pick wisely — it cuts both ways.',
+            description: 'Double the score on one hole. Tap a hole with a pick to apply. Cuts both ways!',
           }) : undefined}
           disabled={postmanUsed}
           className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition-all
@@ -98,8 +98,8 @@ export default function ChipsPanel({
         >
           <span className="text-xl">📮</span>
           <span className="text-[10px] font-bold text-[#d63030] whitespace-nowrap">Postman</span>
-          <span className="text-[9px] text-[#8ab89a] whitespace-nowrap">2× score</span>
-          {postmanUsed && <span className="text-[9px] text-[#5a7a65]">Active R{round}</span>}
+          <span className="text-[9px] text-[#8ab89a] whitespace-nowrap">2× one hole</span>
+          {postmanUsed && <span className="text-[9px] text-[#5a7a65]">Used R{round}</span>}
         </button>
 
         {/* Mulligan */}

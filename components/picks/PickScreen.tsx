@@ -51,7 +51,7 @@ export default function PickScreen({
   const [chips, setChips] = useState<Chips | null>(initialChips)
   const [selectedHole, setSelectedHole] = useState<number>(1)
   const [saving, setSaving] = useState(false)
-  const [postmanPickerOpen, setPostmanPickerOpen] = useState(false)
+  const [postmanMode, setPostmanMode] = useState(false)
   const [sponsorError, setSponsorError] = useState<string | null>(null)
 
   // DataGolf secondary data
@@ -224,18 +224,28 @@ export default function PickScreen({
     setSaving(false)
   }
 
-  async function handleSelectPostman(playerId: string) {
+  async function handlePostmanHole(holeNumber: number) {
     if (!chips) return
-    const res = await fetch('/api/chips', {
-      method: 'POST',
+    // Find the pick on this hole
+    const pick = roundPicks.find((p) => p.hole_number === holeNumber)
+    if (!pick || !pick.player_id) return
+
+    // Set is_postman on this specific pick via API
+    const res = await fetch('/api/picks', {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'postman', round, playerId, chipsId: chips.id }),
+      body: JSON.stringify({ pickId: pick.id, is_postman: true }),
     })
     if (res.ok) {
+      // Update local picks state
+      setPicks((prev) => prev.map((p) =>
+        p.id === pick.id ? { ...p, is_postman: true } : p
+      ))
+      // Also record on chips so the button shows as used
       const key = `postman_r${round}_player_id` as keyof Chips
-      setChips({ ...chips, [key]: playerId })
+      setChips({ ...chips, [key]: pick.player_id })
     }
-    setPostmanPickerOpen(false)
+    setPostmanMode(false)
   }
 
   async function handleMulligan() {
@@ -296,9 +306,18 @@ export default function PickScreen({
         players={players}
         firstPickLocked={firstPickLocked}
         onUseSponsorshipDeal={handleSponsorshipDeal}
-        onSelectPostman={() => setPostmanPickerOpen(true)}
+        onSelectPostman={() => setPostmanMode(true)}
         onUseMulligan={handleMulligan}
       />
+
+      {/* Postman mode banner */}
+      {postmanMode && (
+        <div className="mx-4 mt-2 px-3 py-2.5 rounded-xl bg-[#3d0a0a] border border-[#d63030] flex items-center gap-2">
+          <span className="text-base">📮</span>
+          <p className="text-[11px] text-[#e05555] flex-1">Tap a hole to double its score</p>
+          <button onClick={() => setPostmanMode(false)} className="text-[#5a7a65] text-sm">Cancel</button>
+        </div>
+      )}
 
       {/* Hole grid */}
       <HoleGrid
@@ -307,7 +326,14 @@ export default function PickScreen({
         players={players}
         selectedHole={selectedHole}
         postmanPlayerId={postmanPlayerId}
-        onSelectHole={setSelectedHole}
+        onSelectHole={(hole) => {
+          if (postmanMode) {
+            const pick = roundPicks.find((p) => p.hole_number === hole && p.player_id)
+            if (pick) handlePostmanHole(hole)
+          } else {
+            setSelectedHole(hole)
+          }
+        }}
       />
 
       {/* Selected hole info */}
@@ -393,51 +419,6 @@ export default function PickScreen({
         onPick={handlePick}
       />
 
-      {/* Postman picker — bottom sheet */}
-      {postmanPickerOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setPostmanPickerOpen(false)}
-          />
-          {/* Sheet */}
-          <div className="relative bg-[#0a1a10] rounded-t-2xl max-h-[75vh] flex flex-col">
-            <div className="px-4 py-4 border-b border-[#1a3d2b]">
-              <h2 className="text-base font-bold text-white">📮 Choose your Postman</h2>
-              <p className="text-xs text-[#8ab89a] mt-0.5">
-                Their score will be doubled on every hole you pick them this round
-              </p>
-            </div>
-            <div className="overflow-y-auto flex-1 divide-y divide-[#1a3d2b]">
-              {[...players]
-                .filter((p) => p.status === 'active')
-                .sort((a, b) => a.current_price - b.current_price)
-                .map((player) => (
-                  <button
-                    key={player.id}
-                    onClick={() => handleSelectPostman(player.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3 active:bg-[#1a3d2b] text-left"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white truncate">{player.name}</p>
-                      <p className="text-[11px] text-[#8ab89a]">{player.country}</p>
-                    </div>
-                    <span className="text-sm font-score font-bold text-[#c9a227]">
-                      £{player.current_price}m
-                    </span>
-                  </button>
-                ))}
-            </div>
-            <button
-              onClick={() => setPostmanPickerOpen(false)}
-              className="m-4 py-3 text-sm font-bold text-[#8ab89a] border border-[#2d5c3f] rounded-xl"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -66,21 +66,6 @@ export async function GET(req: Request) {
     .eq('is_locked', true)
     .order('hole_number')
 
-  // Chips for postman indicator
-  const { data: chips } = await supabase
-    .from('chips')
-    .select('postman_r1_player_id, postman_r2_player_id, postman_r3_player_id, postman_r4_player_id')
-    .eq('league_id', leagueId)
-    .eq('user_id', targetUserId)
-    .single()
-
-  const postmanCol = `postman_r${roundNum}_player_id` as
-    | 'postman_r1_player_id'
-    | 'postman_r2_player_id'
-    | 'postman_r3_player_id'
-    | 'postman_r4_player_id'
-  const postmanPlayerId = chips?.[postmanCol] ?? null
-
   return NextResponse.json({
     displayName: await (async () => {
       if (targetMember.display_name) return targetMember.display_name
@@ -88,7 +73,6 @@ export async function GET(req: Request) {
         const clerk = await clerkClient()
         const u = await clerk.users.getUser(targetUserId)
         const name = clerkDisplayName(u)
-        // Backfill for next time
         await supabase.from('league_members').update({ display_name: name }).eq('league_id', leagueId).eq('user_id', targetUserId).is('display_name', null)
         return name
       } catch { return 'Player' }
@@ -101,7 +85,7 @@ export async function GET(req: Request) {
         ?? 'Unknown',
       pricePaid: p.price_paid,
       scoreVsPar: p.score_vs_par,
-      isPostman: p.player_id === postmanPlayerId,
+      isPostman: p.is_postman ?? false,
     })),
   })
 }

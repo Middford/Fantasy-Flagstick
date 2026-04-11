@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       .eq('league_id', leagueId),
     supabase
       .from('picks')
-      .select('user_id, player_id, score_vs_par, round')
+      .select('user_id, player_id, score_vs_par, round, is_postman')
       .eq('league_id', leagueId)
       .not('score_vs_par', 'is', null),
     supabase
@@ -74,25 +74,11 @@ export async function GET(req: Request) {
     }
   }
 
-  // Build postman lookup: user_id → { r1: playerId, r2: playerId, ... }
-  // Postman doubling applies per-round — each round has its own Postman selection
-  const postmanByUserRound = new Map<string, Map<number, string | null>>()
-  chipsRows?.forEach((c) => {
-    const byRound = new Map<number, string | null>()
-    byRound.set(1, c.postman_r1_player_id ?? null)
-    byRound.set(2, c.postman_r2_player_id ?? null)
-    byRound.set(3, c.postman_r3_player_id ?? null)
-    byRound.set(4, c.postman_r4_player_id ?? null)
-    postmanByUserRound.set(c.user_id, byRound)
-  })
-
-  // Aggregate scores across ALL rounds with per-round Postman doubling
+  // Aggregate scores across ALL rounds — Postman doubles the one flagged pick
   const userScores = new Map<string, { score: number; holes: number }>()
   picks?.forEach((pick) => {
     const base = pick.score_vs_par ?? 0
-    const postmanPlayerId = postmanByUserRound.get(pick.user_id)?.get(pick.round) ?? null
-    const isPostman = postmanPlayerId !== null && pick.player_id === postmanPlayerId
-    const score = isPostman ? base * 2 : base
+    const score = pick.is_postman ? base * 2 : base
     const existing = userScores.get(pick.user_id) ?? { score: 0, holes: 0 }
     userScores.set(pick.user_id, { score: existing.score + score, holes: existing.holes + 1 })
   })
