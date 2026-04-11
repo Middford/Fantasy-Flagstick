@@ -138,9 +138,9 @@ export default function PlayerList({
                 {lockedOut && (
                   <span className="text-[#e8a020]">Locked out</span>
                 )}
-                {winPct != null && (
+                {(player.total_score != null && (player.total_score !== 0 || player.holes_completed > 0)) && (
                   <span className="text-[#8ab89a]">
-                    · W: {(winPct * 100).toFixed(1)}%
+                    · {player.total_score === 0 ? 'E' : player.total_score > 0 ? `+${player.total_score}` : player.total_score}
                   </span>
                 )}
               </div>
