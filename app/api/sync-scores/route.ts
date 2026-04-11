@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
-import { calculateBasePrice, getPriceDirection } from '@/lib/pricing/engine'
+import { getPriceDirection } from '@/lib/pricing/engine'
 import { dataGolf } from '@/lib/datagolf/client'
 
 // ESPN never shows "CUT" as a score string — cut players just get numeric scores.
@@ -171,39 +171,64 @@ export async function GET() {
 
 
 
-    // ── Bulk price refresh (runs every sync cycle) ────────────────────────────
-    // Primary: live DataGolf win probability sets the price tier.
-    // Fallback (no DataGolf match — e.g. LIV players): score-based pricing so
-    // players can't stay frozen at their original price all tournament.
-    // Current round scoring adds ±£2m modifier in both cases.
-    for (const player of players) {
-      const winProb = winProbByPlayer.size > 0
-        ? (winProbByPlayer.get(player.name_full.toLowerCase())
-          ?? winProbByPlayer.get(player.name.toLowerCase()))
-        : null
+    // ── Bulk price refresh: relative performance vs field, tier-weighted ─────
+    // Formula:
+    //   fieldRelative = fieldAvgTotal - playerTotal  (positive = beating the field)
+    //   tier = (origPrice - 1) / 15  (0 = cheapest £1m, 1 = most expensive £16m)
+    //   weight = outperforming ? (1.5 - tier) : (0.5 + tier)
+    //     → top player outperforming:   weight 0.5  (expected, small rise)
+    //     → top player underperforming: weight 1.5  (unexpected, bigger drop)
+    //     → cheap player outperforming: weight 1.5  (unexpected, bigger rise)
+    //     → cheap player underperforming: weight 0.5 (expected, small drop)
+    //   adjustment = fieldRelative × weight × 0.4
+    //   newPrice clamped to [origPrice × 0.5, origPrice × 1.5] (max ±50% swing)
+    {
+      // Batch fetch original pre-tournament prices (round 1, earliest hole per player)
+      const { data: origPriceRows } = await supabase
+        .from('price_history')
+        .select('player_id, price')
+        .in('player_id', players.map((p) => p.id))
+        .eq('round', 1)
+        .order('hole_number', { ascending: true })
 
-      const roundMod = Math.max(-2, Math.min(2, -(player.current_round_score) * 0.15))
+      const origPriceByPlayer = new Map<string, number>()
+      origPriceRows?.forEach((row) => {
+        if (!origPriceByPlayer.has(row.player_id)) origPriceByPlayer.set(row.player_id, row.price)
+      })
 
-      let newPrice: number
-      if (winProb != null) {
-        // Odds-primary: DataGolf win prob → price tier + round modifier
-        newPrice = Math.max(1, Math.min(20, Math.round((calculateBasePrice(winProb) + roundMod) * 2) / 2))
-      } else {
-        // Score-based fallback: £8m base adjusted by total score (£0.25/stroke)
-        // Means E = £8, -8 = £10, +8 = £6. Cap at £12 so no-data players can't dominate.
-        const scoreFallback = Math.max(1, Math.min(12, 8 - (player.total_score ?? 0) * 0.25))
-        newPrice = Math.max(1, Math.min(12, Math.round((scoreFallback + roundMod) * 2) / 2))
+      // Field average total score (players who have started)
+      const startedPlayers = players.filter((p) => (p.total_score ?? 0) !== 0 || p.holes_completed > 0)
+      const fieldAvgTotal = startedPlayers.length > 0
+        ? startedPlayers.reduce((sum, p) => sum + (p.total_score ?? 0), 0) / startedPlayers.length
+        : 0
+
+      for (const player of players) {
+        const origPrice = origPriceByPlayer.get(player.id) ?? player.current_price
+        const totalScore = player.total_score ?? 0
+        const fieldRelative = fieldAvgTotal - totalScore  // positive = better than field
+
+        const tier = Math.max(0, Math.min(1, (origPrice - 1) / 15))
+        const weight = fieldRelative >= 0
+          ? (1.5 - tier)   // outperforming: cheap players rewarded more
+          : (0.5 + tier)   // underperforming: expensive players penalised more
+
+        const adj = fieldRelative * weight * 0.4
+
+        // Round to nearest £0.5m, clamp to ±50% of original price (and hard £20m ceiling)
+        const floor = Math.round(origPrice * 0.5 * 2) / 2
+        const ceiling = Math.min(20, Math.round(origPrice * 1.5 * 2) / 2)
+        const newPrice = Math.max(floor, Math.min(ceiling, Math.round((origPrice + adj) * 2) / 2))
+
+        if (newPrice === player.current_price) continue
+
+        const direction = getPriceDirection(player.current_price, newPrice)
+        await supabase
+          .from('players')
+          .update({ current_price: newPrice, price_direction: direction })
+          .eq('id', player.id)
+
+        player.current_price = newPrice
       }
-
-      if (newPrice === player.current_price) continue
-
-      const direction = getPriceDirection(player.current_price, newPrice)
-      await supabase
-        .from('players')
-        .update({ current_price: newPrice, price_direction: direction })
-        .eq('id', player.id)
-
-      player.current_price = newPrice
     }
 
     // ── Batch fetch already-confirmed hole scores ──────────────────────────────
@@ -350,14 +375,10 @@ export async function GET() {
         const holesCompleted = roundScores?.length ?? 0
         const totalScore = allRoundScores?.reduce((sum, h) => sum + (h.score_vs_par ?? 0), 0) ?? 0
 
-        // Odds-primary pricing: win probability sets the base, current round adds ±£2m max
-        const winProb = winProbByPlayer.get(player.name_full.toLowerCase())
-          ?? winProbByPlayer.get(player.name.toLowerCase())
-        const basePrice = roundStartPriceRow?.price ?? player.current_price
-        const oddsBase = winProb != null ? calculateBasePrice(winProb) : basePrice
-        const roundMod = Math.max(-2, Math.min(2, -(currentRoundScore) * 0.15))
-        const newPrice = Math.max(1, Math.min(20, Math.round((oddsBase + roundMod) * 2) / 2))
-        const direction = getPriceDirection(player.current_price, newPrice)
+        // Price is handled by the bulk relative-performance pass above.
+        // Here we just use current_price (already updated this cycle) to record price_history.
+        const newPrice = player.current_price
+        const direction = player.price_direction as 'up' | 'down' | 'flat'
 
         await supabase
           .from('players')
@@ -365,8 +386,6 @@ export async function GET() {
             current_round_score: currentRoundScore,
             holes_completed: holesCompleted,
             total_score: totalScore,
-            current_price: newPrice,
-            price_direction: direction,
           })
           .eq('id', player.id)
 
