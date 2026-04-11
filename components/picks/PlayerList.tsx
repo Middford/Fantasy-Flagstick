@@ -111,52 +111,44 @@ export default function PlayerList({
           <div
             key={player.id}
             onClick={() => router.push(`/player/${player.id}`)}
-            className={`flex items-center gap-3 px-4 py-3 transition-colors cursor-pointer active:bg-[#1a3d2b]
+            className={`flex items-center gap-2 px-4 py-2.5 transition-colors cursor-pointer active:bg-[#1a3d2b]
               ${isPicked ? 'bg-[#1a3d2b] border-l-2 border-[#c9a227]' : ''}
               ${disabled ? 'opacity-50' : ''}`}
           >
             {/* Name + country */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-white truncate">
-                  {player.name}
-                </span>
+                <span className="text-sm font-semibold text-white truncate">{player.name}</span>
                 {isPostman && <span className="text-[10px] bg-[#d63030] rounded px-1 text-white">📮</span>}
+                {lockedOut && <span className="text-[10px] text-[#e8a020]">LOCKED</span>}
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-[#8ab89a]">
-                <span>{player.country}</span>
-                {player.holes_completed > 0 ? (
-                  <span>· Thru {player.holes_completed}</span>
-                ) : (
-                  (() => {
-                    const pt = teeTimes?.[player.name_full.toLowerCase()]
-                    const raw = round === 4 ? (pt?.r4 ?? pt?.r3)
-                              : round === 3 ? pt?.r3
-                              : round === 2 ? (pt?.r2 ?? pt?.r1)
-                              : pt?.r1
-                    return raw ? <span>· Tee {raw}</span> : null
-                  })()
-                )}
-                {lockedOut && (
-                  <span className="text-[#e8a020]">Locked out</span>
-                )}
-                {player.holes_completed > 0 && player.current_round_score !== 0 && (
-                  <span className={`${player.current_round_score < 0 ? 'text-[#4adb7a]' : 'text-[#e05555]'}`}>
-                    · R{currentRound}: {scoreLabel(player.current_round_score)} thru {player.holes_completed}
-                  </span>
-                )}
-                {player.holes_completed > 0 && player.current_round_score === 0 && (
-                  <span className="text-[#8ab89a]">· R{currentRound}: E thru {player.holes_completed}</span>
-                )}
+              <div className="text-[11px] text-[#5a7a65]">
+                {player.country}
+                {(() => {
+                  const pt = teeTimes?.[player.name_full.toLowerCase()]
+                  const raw = round === 4 ? (pt?.r4 ?? pt?.r3)
+                            : round === 3 ? pt?.r3
+                            : round === 2 ? (pt?.r2 ?? pt?.r1)
+                            : pt?.r1
+                  return raw && player.holes_completed === 0 ? ` · ${raw}` : ''
+                })()}
+                <span className="text-[#5a7a65]"> · {uses}/3</span>
               </div>
             </div>
 
-            {/* Tournament score */}
-            <div className="text-center w-12">
+            {/* Tournament score + round score stacked */}
+            <div className="text-right w-16">
               {(player.total_score != null && (player.total_score !== 0 || player.holes_completed > 0)) ? (
-                <span className={`font-score text-sm font-bold ${player.total_score < 0 ? 'text-[#4adb7a]' : player.total_score > 0 ? 'text-[#e05555]' : 'text-white'}`}>
-                  {scoreLabel(player.total_score)}
-                </span>
+                <>
+                  <div className={`font-score text-base font-bold leading-tight ${player.total_score < 0 ? 'text-[#4adb7a]' : player.total_score > 0 ? 'text-[#e05555]' : 'text-white'}`}>
+                    {scoreLabel(player.total_score)}
+                  </div>
+                  {player.holes_completed > 0 && (
+                    <div className={`text-[10px] leading-tight ${player.current_round_score < 0 ? 'text-[#4adb7a]/70' : player.current_round_score > 0 ? 'text-[#e05555]/70' : 'text-[#8ab89a]/70'}`}>
+                      R{currentRound}: {scoreLabel(player.current_round_score)} ({player.holes_completed})
+                    </div>
+                  )}
+                </>
               ) : (
                 <span className="text-[#5a7a65] text-sm">—</span>
               )}
@@ -168,21 +160,11 @@ export default function PlayerList({
               <span className="font-score text-sm font-bold text-[#c9a227]">£{player.current_price}m</span>
             </div>
 
-            {/* BtB indicator */}
-            {btbIcon && (
-              <span className="text-sm">{btbIcon}</span>
-            )}
-
-            {/* Uses */}
-            <div className="text-[10px] text-[#5a7a65] w-6 text-center">
-              {uses}/3
-            </div>
-
             {/* Pick button */}
             <button
               onClick={(e) => { e.stopPropagation(); if (!disabled) onPick(player) }}
               disabled={disabled}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all
+              className={`flex-shrink-0 w-10 py-1.5 rounded-lg text-xs font-bold transition-all text-center
                 ${isPicked
                   ? 'bg-[#c9a227] text-[#0a1a10]'
                   : isPostman
@@ -191,7 +173,7 @@ export default function PlayerList({
                   ? 'bg-[#1a3d2b] text-[#5a7a65] cursor-not-allowed'
                   : 'bg-[#2d5c3f] text-white active:scale-95'}`}
             >
-              {isPicked && currentPickLocked ? '🔒' : isPicked ? '✓' : maxUses ? 'Max' : lockedOut ? 'Out' : `£${player.current_price}m`}
+              {isPicked && currentPickLocked ? '🔒' : isPicked ? '✓' : maxUses ? 'Max' : lockedOut ? '—' : 'Pick'}
             </button>
           </div>
         )
