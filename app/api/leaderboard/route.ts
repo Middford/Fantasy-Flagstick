@@ -36,8 +36,7 @@ export async function GET(req: Request) {
     supabase
       .from('picks')
       .select('user_id, player_id, score_vs_par, round, hole_number, is_postman')
-      .eq('league_id', leagueId)
-      .not('score_vs_par', 'is', null),
+      .eq('league_id', leagueId),
     supabase
       .from('chips')
       .select('user_id, postman_r1_player_id, postman_r2_player_id, postman_r3_player_id, postman_r4_player_id')
@@ -79,12 +78,15 @@ export async function GET(req: Request) {
   const userScores = new Map<string, { score: number; holes: number }>()
   const userHolesByRound = new Map<string, Map<number, Set<number>>>() // userId → round → Set<holeNumber>
   picks?.forEach((pick) => {
-    const base = pick.score_vs_par ?? 0
-    const score = pick.is_postman ? base * 2 : base
-    const existing = userScores.get(pick.user_id) ?? { score: 0, holes: 0 }
-    userScores.set(pick.user_id, { score: existing.score + score, holes: existing.holes + 1 })
+    // Only count confirmed scores toward total; null = not yet scored
+    if (pick.score_vs_par != null) {
+      const base = pick.score_vs_par
+      const score = pick.is_postman ? base * 2 : base
+      const existing = userScores.get(pick.user_id) ?? { score: 0, holes: 0 }
+      userScores.set(pick.user_id, { score: existing.score + score, holes: existing.holes + 1 })
+    }
 
-    // Track holes per round
+    // Track ALL picked holes per round (including unscored) for penalty calculation
     if (!userHolesByRound.has(pick.user_id)) userHolesByRound.set(pick.user_id, new Map())
     const byRound = userHolesByRound.get(pick.user_id)!
     if (!byRound.has(pick.round)) byRound.set(pick.round, new Set())

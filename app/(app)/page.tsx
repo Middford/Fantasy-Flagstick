@@ -78,7 +78,6 @@ export default async function HomePage() {
           .from('picks')
           .select('user_id, player_id, score_vs_par, round, hole_number, is_postman')
           .eq('league_id', leagueId)
-          .not('score_vs_par', 'is', null)
       : Promise.resolve({ data: null }),
     leagueId
       ? svc.from('league_members').select('user_id').eq('league_id', leagueId)
@@ -117,10 +116,14 @@ export default async function HomePage() {
     leagueMembers.forEach((m) => memberScores.set(m.user_id, 0))
     allLeaguePicks?.forEach((pick) => {
       if (!memberScores.has(pick.user_id)) return
-      const base = pick.score_vs_par ?? 0
-      const score = pick.is_postman ? base * 2 : base
-      memberScores.set(pick.user_id, (memberScores.get(pick.user_id) ?? 0) + score)
+      // Only count confirmed scores toward total; null = not yet scored
+      if (pick.score_vs_par != null) {
+        const base = pick.score_vs_par
+        const score = pick.is_postman ? base * 2 : base
+        memberScores.set(pick.user_id, (memberScores.get(pick.user_id) ?? 0) + score)
+      }
 
+      // Track ALL picked holes per round (including unscored) for penalty calculation
       if (!memberHolesByRound.has(pick.user_id)) memberHolesByRound.set(pick.user_id, new Map())
       const byRound = memberHolesByRound.get(pick.user_id)!
       if (!byRound.has(pick.round)) byRound.set(pick.round, new Set())
