@@ -88,7 +88,7 @@ export default function RoundLeaderboard({
         <span className="w-10 text-right">Total</span>
       </div>
       <div className="divide-y divide-[#1a3d2b]">
-        {players.slice(0, 20).map((p, i) => {
+        {players.slice(0, 10).map((p, i) => {
           const totalNum = p.totalScore === 'E' ? 0 : parseInt(p.totalScore) || 0
           return (
             <div key={i} className="flex items-center px-4 py-1.5">

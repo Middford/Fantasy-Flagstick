@@ -45,7 +45,7 @@ export default function TournamentLeaderboard() {
         <span className="w-10 text-right">Total</span>
       </div>
       <div className="divide-y divide-[#1a3d2b]">
-        {players.slice(0, 20).map((p, i) => {
+        {players.slice(0, 10).map((p, i) => {
           const totalNum = p.total === 'E' ? 0 : parseInt(p.total) || 0
           const isCut = p.status === 'cut'
           return (
