@@ -26,8 +26,18 @@ export async function GET(req: Request) {
 
   const supabase = createServiceClient()
 
+  // Get tournament for current_round (needed for penalty calculation)
+  const { data: league } = await supabase
+    .from('leagues')
+    .select('tournament_id')
+    .eq('id', leagueId)
+    .single()
+  const { data: tournament } = league
+    ? await supabase.from('tournaments').select('current_round').eq('id', league.tournament_id).single()
+    : { data: null }
+  const completedRounds = Math.max(0, (tournament?.current_round ?? 1) - 1)
+
   // Members, ALL picks (all rounds), and chips in parallel
-  // round param is kept for API compatibility but scores are aggregated across all rounds
   const [{ data: members }, { data: picks }, { data: chipsRows }] = await Promise.all([
     supabase
       .from('league_members')
@@ -93,17 +103,20 @@ export async function GET(req: Request) {
     byRound.get(pick.round)!.add(pick.hole_number)
   })
 
-  // Penalty: +2 (double bogey) for each unpicked hole in rounds where the user has picks
-  userHolesByRound.forEach((byRound, usrId) => {
-    const existing = userScores.get(usrId) ?? { score: 0, holes: 0 }
-    byRound.forEach((holes) => {
-      const missed = 18 - holes.size
+  // Penalty: +2 (double bogey) for each unpicked hole in all completed rounds.
+  // Applies to ALL league members, even those with zero picks in a round.
+  members?.forEach((m) => {
+    const existing = userScores.get(m.user_id) ?? { score: 0, holes: 0 }
+    const byRound = userHolesByRound.get(m.user_id)
+    for (let r = 1; r <= completedRounds; r++) {
+      const pickedHoles = byRound?.get(r)?.size ?? 0
+      const missed = 18 - pickedHoles
       if (missed > 0) {
         existing.score += missed * 2
         existing.holes += missed
       }
-    })
-    userScores.set(usrId, existing)
+    }
+    userScores.set(m.user_id, existing)
   })
 
   const entries = members.map((m) => ({

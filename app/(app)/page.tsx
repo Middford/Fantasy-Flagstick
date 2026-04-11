@@ -132,12 +132,15 @@ export default async function HomePage() {
       if (!byRound.has(pick.round)) byRound.set(pick.round, new Set())
       byRound.get(pick.round)!.add(pick.hole_number)
     })
-    // +2 penalty per unpicked hole in rounds where user has picks
-    memberHolesByRound.forEach((byRound, uid) => {
-      byRound.forEach((holes) => {
-        const missed = 18 - holes.size
-        if (missed > 0) memberScores.set(uid, (memberScores.get(uid) ?? 0) + missed * 2)
-      })
+    // +2 penalty per unpicked hole in all completed rounds (applies to all members)
+    const completedRounds = Math.max(0, tournament.current_round - 1)
+    leagueMembers.forEach((m) => {
+      const byRound = memberHolesByRound.get(m.user_id)
+      for (let r = 1; r <= completedRounds; r++) {
+        const pickedHoles = byRound?.get(r)?.size ?? 0
+        const missed = 18 - pickedHoles
+        if (missed > 0) memberScores.set(m.user_id, (memberScores.get(m.user_id) ?? 0) + missed * 2)
+      }
     })
 
     const sorted = [...memberScores.entries()].sort((a, b) => a[1] - b[1])
