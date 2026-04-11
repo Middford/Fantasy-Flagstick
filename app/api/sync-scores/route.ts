@@ -39,7 +39,7 @@ export async function GET() {
   // Get all active players for this tournament
   const { data: players } = await supabase
     .from('players')
-    .select('id, name, name_full, espn_id, current_price, current_round_score, holes_completed, price_direction, status')
+    .select('id, name, name_full, espn_id, current_price, current_round_score, holes_completed, total_score, price_direction, status')
     .eq('tournament_id', tournament.id)
     .eq('status', 'active')
 
@@ -171,31 +171,39 @@ export async function GET() {
 
 
 
-    // ── Bulk odds-price refresh (runs every sync cycle when DataGolf data available) ──
-    // Live win probability is the primary price driver.
-    // Current round scoring adds a small modifier (±£2m max) on top.
-    // Previous round performance is NOT factored in — odds already reflect that.
-    if (winProbByPlayer.size > 0) {
-      for (const player of players) {
-        const winProb = winProbByPlayer.get(player.name_full.toLowerCase())
-          ?? winProbByPlayer.get(player.name.toLowerCase())
-        if (winProb == null) continue
+    // ── Bulk price refresh (runs every sync cycle) ────────────────────────────
+    // Primary: live DataGolf win probability sets the price tier.
+    // Fallback (no DataGolf match — e.g. LIV players): score-based pricing so
+    // players can't stay frozen at their original price all tournament.
+    // Current round scoring adds ±£2m modifier in both cases.
+    for (const player of players) {
+      const winProb = winProbByPlayer.size > 0
+        ? (winProbByPlayer.get(player.name_full.toLowerCase())
+          ?? winProbByPlayer.get(player.name.toLowerCase()))
+        : null
 
-        const oddsPrice = calculateBasePrice(winProb)
-        // Small current-round modifier: £0.15 per stroke, capped at ±£2m
-        const roundMod = Math.max(-2, Math.min(2, -(player.current_round_score) * 0.15))
-        const newPrice = Math.max(1, Math.min(20, Math.round((oddsPrice + roundMod) * 2) / 2))
+      const roundMod = Math.max(-2, Math.min(2, -(player.current_round_score) * 0.15))
 
-        if (newPrice === player.current_price) continue
-
-        const direction = getPriceDirection(player.current_price, newPrice)
-        await supabase
-          .from('players')
-          .update({ current_price: newPrice, price_direction: direction })
-          .eq('id', player.id)
-
-        player.current_price = newPrice
+      let newPrice: number
+      if (winProb != null) {
+        // Odds-primary: DataGolf win prob → price tier + round modifier
+        newPrice = Math.max(1, Math.min(20, Math.round((calculateBasePrice(winProb) + roundMod) * 2) / 2))
+      } else {
+        // Score-based fallback: £8m base adjusted by total score (£0.25/stroke)
+        // Means E = £8, -8 = £10, +8 = £6. Cap at £12 so no-data players can't dominate.
+        const scoreFallback = Math.max(1, Math.min(12, 8 - (player.total_score ?? 0) * 0.25))
+        newPrice = Math.max(1, Math.min(12, Math.round((scoreFallback + roundMod) * 2) / 2))
       }
+
+      if (newPrice === player.current_price) continue
+
+      const direction = getPriceDirection(player.current_price, newPrice)
+      await supabase
+        .from('players')
+        .update({ current_price: newPrice, price_direction: direction })
+        .eq('id', player.id)
+
+      player.current_price = newPrice
     }
 
     // ── Batch fetch already-confirmed hole scores ──────────────────────────────
