@@ -39,7 +39,7 @@ export async function GET() {
   // Get all active players for this tournament
   const { data: players } = await supabase
     .from('players')
-    .select('id, name, name_full, espn_id, current_price, current_round_score, holes_completed, total_score, price_direction, status')
+    .select('id, name, name_full, espn_id, current_price, current_round_score, holes_completed, total_score, price_direction, status, price_r1')
     .eq('tournament_id', tournament.id)
     .eq('status', 'active')
 
@@ -172,49 +172,33 @@ export async function GET() {
 
 
     // ── Bulk price refresh: relative performance vs field, tier-weighted ─────
-    // Formula:
-    //   fieldRelative = fieldAvgTotal - playerTotal  (positive = beating the field)
-    //   tier = (origPrice - 1) / 15  (0 = cheapest £1m, 1 = most expensive £16m)
-    //   weight = outperforming ? (1.5 - tier) : (0.5 + tier)
-    //     → top player outperforming:   weight 0.5  (expected, small rise)
-    //     → top player underperforming: weight 1.5  (unexpected, bigger drop)
-    //     → cheap player outperforming: weight 1.5  (unexpected, bigger rise)
-    //     → cheap player underperforming: weight 0.5 (expected, small drop)
-    //   adjustment = fieldRelative × weight × 0.4
-    //   newPrice clamped to [origPrice × 0.5, origPrice × 1.5] (max ±50% swing)
+    // origPrice = price_r1 (set once at tournament setup, never drifts)
+    // fieldRelative = fieldAvgTotal - playerTotal  (positive = beating the field)
+    // tier = (origPrice - 4) / 12  (0 = £4m floor, 1 = £16m ceiling from seed-field)
+    // weight = outperforming ? (1.5 - tier) : (0.5 + tier)
+    //   → top player outperforming:     weight ~0.5  (expected, small rise)
+    //   → top player underperforming:   weight ~1.5  (unexpected, bigger drop)
+    //   → cheap player outperforming:   weight ~1.5  (unexpected, bigger rise)
+    //   → cheap player underperforming: weight ~0.5  (expected, small drop)
+    // newPrice clamped to [origPrice × 0.5, origPrice × 1.5]  (max ±50% swing)
     {
-      // Batch fetch original pre-tournament prices (round 1, earliest hole per player)
-      const { data: origPriceRows } = await supabase
-        .from('price_history')
-        .select('player_id, price')
-        .in('player_id', players.map((p) => p.id))
-        .eq('round', 1)
-        .order('hole_number', { ascending: true })
-
-      const origPriceByPlayer = new Map<string, number>()
-      origPriceRows?.forEach((row) => {
-        if (!origPriceByPlayer.has(row.player_id)) origPriceByPlayer.set(row.player_id, row.price)
-      })
-
-      // Field average total score (players who have started)
       const startedPlayers = players.filter((p) => (p.total_score ?? 0) !== 0 || p.holes_completed > 0)
       const fieldAvgTotal = startedPlayers.length > 0
         ? startedPlayers.reduce((sum, p) => sum + (p.total_score ?? 0), 0) / startedPlayers.length
         : 0
 
       for (const player of players) {
-        const origPrice = origPriceByPlayer.get(player.id) ?? player.current_price
+        const origPrice = player.price_r1 ?? player.current_price
         const totalScore = player.total_score ?? 0
         const fieldRelative = fieldAvgTotal - totalScore  // positive = better than field
 
-        const tier = Math.max(0, Math.min(1, (origPrice - 1) / 15))
+        const tier = Math.max(0, Math.min(1, (origPrice - 4) / 12))
         const weight = fieldRelative >= 0
           ? (1.5 - tier)   // outperforming: cheap players rewarded more
           : (0.5 + tier)   // underperforming: expensive players penalised more
 
         const adj = fieldRelative * weight * 0.4
 
-        // Round to nearest £0.5m, clamp to ±50% of original price (and hard £20m ceiling)
         const floor = Math.round(origPrice * 0.5 * 2) / 2
         const ceiling = Math.min(20, Math.round(origPrice * 1.5 * 2) / 2)
         const newPrice = Math.max(floor, Math.min(ceiling, Math.round((origPrice + adj) * 2) / 2))
