@@ -52,13 +52,14 @@ export default async function HomePage() {
     leagueId = league?.id ?? null
   }
 
-  // Fetch user picks + league-wide data in parallel
+  // Fetch user picks + league-wide data + round-in-progress check in parallel
   const [
     { data: myPicksRaw },
     { data: holes },
     { data: allLeaguePicks },
     { data: leagueMembers },
     { data: leagueChips },
+    { data: roundInProgressCheck },
   ] = await Promise.all([
     svc
       .from('picks')
@@ -89,6 +90,15 @@ export default async function HomePage() {
           .select('user_id, postman_r1_player_id, postman_r2_player_id, postman_r3_player_id, postman_r4_player_id')
           .eq('league_id', leagueId)
       : Promise.resolve({ data: null }),
+    // Round is "live" if any player has holes_completed > 0 but < 18 in current round
+    svc
+      .from('players')
+      .select('holes_completed')
+      .eq('tournament_id', tournament.id)
+      .eq('status', 'active')
+      .gt('holes_completed', 0)
+      .lt('holes_completed', 18)
+      .limit(1),
   ])
 
   // User's own score this round
@@ -132,6 +142,8 @@ export default async function HomePage() {
   }
 
   const displayName = user?.firstName ?? user?.emailAddresses?.[0]?.emailAddress ?? 'You'
+  // Round is live if at least one active player is mid-round (holes_completed > 0 and < 18)
+  const isLive = (roundInProgressCheck?.length ?? 0) > 0
 
   return (
     <div className="flex flex-col">
@@ -152,7 +164,7 @@ export default async function HomePage() {
           </div>
           {/* Right: Live pill */}
           <div className="flex justify-end">
-            <LivePill round={tournament.current_round} />
+            <LivePill round={tournament.current_round} isLive={isLive} />
           </div>
         </div>
       </header>

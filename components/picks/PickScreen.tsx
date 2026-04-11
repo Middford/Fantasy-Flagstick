@@ -18,7 +18,7 @@ interface HoleStatEntry {
   bogey_pct: number | null
 }
 
-interface TeeTime { r1: string | null; r2: string | null }
+interface TeeTime { r1: string | null; r2: string | null; r3: string | null; r4: string | null }
 
 interface PickScreenProps {
   userId: string

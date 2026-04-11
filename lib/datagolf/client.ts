@@ -23,6 +23,8 @@ const FieldUpdateSchema = z.object({
       country: z.string().optional(),
       r1_teetime: z.string().optional(),
       r2_teetime: z.string().optional(),
+      r3_teetime: z.string().optional(),
+      r4_teetime: z.string().optional(),
     })
   ),
 })

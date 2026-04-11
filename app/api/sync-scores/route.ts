@@ -6,8 +6,12 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
 import { applyPriceUpdate, calculatePerformanceAdjustment, calculateDemandAdjustment, getPriceDirection } from '@/lib/pricing/engine'
+import { dataGolf } from '@/lib/datagolf/client'
 
-const CUT_STATUSES = ['CUT', 'WD', 'DQ', 'MDF']
+// ESPN never shows "CUT" as a score string — cut players just get numeric scores.
+// Cut detection uses DataGolf in-play predictions (make_cut ≈ 0 after cut is made).
+// Only check these ESPN score strings for WD/DQ which ARE displayed explicitly.
+const WD_STATUSES = ['WD', 'DQ']
 
 export async function GET() {
   const supabase = createServiceClient()
@@ -59,24 +63,39 @@ export async function GET() {
     const eventStatus = mastersEvent.status?.type?.state ?? 'pre'
 
     // ── Auto-advance round ─────────────────────────────────────────────────────
-    // Detect the active round from ESPN: highest round number with per-hole data.
-    // Reset holes_completed/current_round_score when advancing so players show 0/0
-    // in the UI until new round scores come in. Also update local players array so
-    // stale-stats comparisons later in this cycle use the correct 0 value.
+    // Two triggers:
+    // 1. A later round has per-hole data (round is IN progress) → advance to that round
+    // 2. The current round is "complete": ≥30 players have all 18 holes confirmed
+    //    → advance to current_round + 1 (handles the gap between rounds)
     let activeSyncRound = tournament.current_round
     {
-      let maxRoundWithData = 1
+      // Count players with 18 confirmed holes per round
+      const completeHoleCounts = new Map<number, number>()
+      let maxRoundWithLiveData = 1
       for (const c of competitors) {
         for (const ls of (c.linescores ?? [])) {
           if (ls.linescores && ls.linescores.length > 0) {
-            if (ls.period > maxRoundWithData) maxRoundWithData = ls.period
+            if (ls.period > maxRoundWithLiveData) maxRoundWithLiveData = ls.period
+          }
+          if ((ls.linescores?.length ?? 0) >= 18) {
+            completeHoleCounts.set(ls.period, (completeHoleCounts.get(ls.period) ?? 0) + 1)
           }
         }
       }
-      if (maxRoundWithData > activeSyncRound) {
+
+      // Determine the round ESPN is actually on
+      const currentRoundComplete = (completeHoleCounts.get(activeSyncRound) ?? 0) >= 30
+      const nextRound = activeSyncRound + 1
+      const targetRound = maxRoundWithLiveData > activeSyncRound
+        ? maxRoundWithLiveData                          // live holes in a later round
+        : (currentRoundComplete && nextRound <= 4)
+          ? nextRound                                   // current round just finished
+          : activeSyncRound
+
+      if (targetRound > activeSyncRound) {
         await supabase
           .from('tournaments')
-          .update({ current_round: maxRoundWithData })
+          .update({ current_round: targetRound })
           .eq('id', tournament.id)
 
         await supabase
@@ -85,46 +104,62 @@ export async function GET() {
           .eq('tournament_id', tournament.id)
           .eq('status', 'active')
 
-        // Reflect reset in local array — prevents false "stale" detections for
-        // players who have no new holes yet in the new round
-        players.forEach((p) => {
-          p.holes_completed = 0
-          p.current_round_score = 0
-        })
-
-        activeSyncRound = maxRoundWithData
-        console.log(`Round advanced: ${tournament.current_round} → ${maxRoundWithData}`)
+        players.forEach((p) => { p.holes_completed = 0; p.current_round_score = 0 })
+        activeSyncRound = targetRound
+        console.log(`Round advanced: ${tournament.current_round} → ${targetRound}`)
       }
     }
 
-    // ── Cut/WD player detection ────────────────────────────────────────────────
-    const cutPlayerIds: string[] = []
-    const wdPlayerIds: string[] = []
-    for (const competitor of competitors) {
-      const scoreUpper = (competitor.score ?? '').trim().toUpperCase()
-      if (!CUT_STATUSES.includes(scoreUpper)) continue
-      const espnName = competitor.athlete?.displayName ?? ''
-      const espnShort = competitor.athlete?.shortName ?? ''
-      const player = players.find(
-        (p) =>
-          p.espn_id === competitor.id ||
-          (espnName && p.name_full.toLowerCase() === espnName.toLowerCase()) ||
-          (espnShort && p.name.toLowerCase() === espnShort.toLowerCase())
-      )
-      if (!player) continue
-      if (scoreUpper === 'WD' || scoreUpper === 'DQ') {
-        wdPlayerIds.push(player.id)
-      } else {
-        cutPlayerIds.push(player.id)
+    // ── Cut/WD detection ──────────────────────────────────────────────────────
+    // ESPN never shows "CUT" as a score string — all players show numeric totals.
+    // Use DataGolf in-play predictions: make_cut ≈ 0 means the player missed the cut.
+    // WD/DQ: ESPN does show these as score strings, handle them separately.
+    {
+      // WD/DQ from ESPN score field
+      const wdPlayerIds: string[] = []
+      for (const competitor of competitors) {
+        const scoreUpper = (competitor.score ?? '').trim().toUpperCase()
+        if (!WD_STATUSES.includes(scoreUpper)) continue
+        const espnName = competitor.athlete?.displayName ?? ''
+        const espnShort = competitor.athlete?.shortName ?? ''
+        const player = players.find(
+          (p) =>
+            p.espn_id === competitor.id ||
+            (espnName && p.name_full.toLowerCase() === espnName.toLowerCase()) ||
+            (espnShort && p.name.toLowerCase() === espnShort.toLowerCase())
+        )
+        if (player) wdPlayerIds.push(player.id)
       }
-    }
-    if (cutPlayerIds.length > 0) {
-      await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
-      console.log(`Marked ${cutPlayerIds.length} players as cut`)
-    }
-    if (wdPlayerIds.length > 0) {
-      await supabase.from('players').update({ status: 'withdrawn' }).in('id', wdPlayerIds)
-      console.log(`Marked ${wdPlayerIds.length} players as withdrawn`)
+      if (wdPlayerIds.length > 0) {
+        await supabase.from('players').update({ status: 'withdrawn' }).in('id', wdPlayerIds)
+        console.log(`Marked ${wdPlayerIds.length} players as withdrawn`)
+      }
+
+      // Cut detection from DataGolf in-play predictions (only after R2+)
+      if (activeSyncRound >= 3) {
+        try {
+          const inPlay = await dataGolf.getInPlayPredictions()
+          const cutPlayerIds: string[] = []
+          for (const entry of inPlay.data) {
+            if ((entry.make_cut ?? 1) > 0.01) continue  // Still in or not yet determined
+            // Normalise DataGolf name "Last, First" → "First Last"
+            const parts = entry.player_name.replace(/,/g, '').split(' ').filter(Boolean)
+            const normalised = parts.length >= 2
+              ? `${parts[parts.length - 1]} ${parts.slice(0, -1).join(' ')}`.toLowerCase()
+              : entry.player_name.toLowerCase()
+            const player = players.find(
+              (p) => p.name_full.toLowerCase() === normalised || p.name.toLowerCase() === normalised
+            )
+            if (player && player.status === 'active') cutPlayerIds.push(player.id)
+          }
+          if (cutPlayerIds.length > 0) {
+            await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
+            console.log(`Marked ${cutPlayerIds.length} players as cut (DataGolf)`)
+          }
+        } catch {
+          // DataGolf unavailable — cut detection deferred to next cycle
+        }
+      }
     }
 
     // Get total pick counts per player for demand calculation
@@ -158,7 +193,7 @@ export async function GET() {
 
     for (const competitor of competitors) {
       const scoreUpper = (competitor.score ?? '').trim().toUpperCase()
-      if (CUT_STATUSES.includes(scoreUpper)) continue
+      if (WD_STATUSES.includes(scoreUpper)) continue
 
       const espnName = competitor.athlete?.displayName ?? ''
       const espnShort = competitor.athlete?.shortName ?? ''

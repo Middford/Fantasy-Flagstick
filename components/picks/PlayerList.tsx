@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import type { Player } from '@/lib/supabase/types'
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react'
 
-interface TeeTime { r1: string | null; r2: string | null }
+interface TeeTime { r1: string | null; r2: string | null; r3: string | null; r4: string | null }
 
 interface PlayerListProps {
   players: Player[]
@@ -54,7 +54,10 @@ export default function PlayerList({
   // Sort: availability groups first, then by tee time ascending, price descending as tiebreak
   const getTeeTime = (p: Player): string => {
     const pt = teeTimes?.[p.name_full.toLowerCase()]
-    const t = round === 2 ? (pt?.r2 ?? pt?.r1) : pt?.r1
+    const t = round === 4 ? (pt?.r4 ?? pt?.r3)
+            : round === 3 ? pt?.r3
+            : round === 2 ? (pt?.r2 ?? pt?.r1)
+            : pt?.r1
     return t ?? '99:99'  // No tee time → push to end
   }
 
@@ -125,7 +128,10 @@ export default function PlayerList({
                 ) : (
                   (() => {
                     const pt = teeTimes?.[player.name_full.toLowerCase()]
-                    const raw = round === 2 ? (pt?.r2 ?? pt?.r1) : pt?.r1
+                    const raw = round === 4 ? (pt?.r4 ?? pt?.r3)
+                              : round === 3 ? pt?.r3
+                              : round === 2 ? (pt?.r2 ?? pt?.r1)
+                              : pt?.r1
                     return raw ? <span>· Tee {raw}</span> : null
                   })()
                 )}

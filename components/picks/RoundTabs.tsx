@@ -6,9 +6,10 @@ interface RoundTabsProps {
   currentRound: number
   selectedRound: number
   availableRounds: number[]
+  isLive?: boolean
 }
 
-export default function RoundTabs({ currentRound, selectedRound, availableRounds }: RoundTabsProps) {
+export default function RoundTabs({ currentRound, selectedRound, availableRounds, isLive = false }: RoundTabsProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -54,7 +55,7 @@ export default function RoundTabs({ currentRound, selectedRound, availableRounds
           >
             {isCompleted && !isSelected && <span className="mr-1 text-[9px]">✓</span>}
             {labels[r]}
-            {isLive && <span className="ml-1 text-[9px] opacity-75">LIVE</span>}
+            {isLive && r === currentRound && <span className="ml-1 text-[9px] opacity-75">LIVE</span>}
           </button>
         )
       })}

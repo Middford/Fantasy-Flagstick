@@ -75,11 +75,22 @@ export default async function PicksPage({
   // Fetch ALL players (active + cut + withdrawn) so HoleGrid can display names
   // for picks referencing cut players (R1/R2 picks after the cut).
   // PlayerList filters to active-only internally.
-  const { data: players } = await db
-    .from('players')
-    .select('*')
-    .eq('tournament_id', tournament.id)
-    .order('current_price', { ascending: false })
+  const [{ data: players }, { data: roundInProgressCheck }] = await Promise.all([
+    db
+      .from('players')
+      .select('*')
+      .eq('tournament_id', tournament.id)
+      .order('current_price', { ascending: false }),
+    db
+      .from('players')
+      .select('holes_completed')
+      .eq('tournament_id', tournament.id)
+      .eq('status', 'active')
+      .gt('holes_completed', 0)
+      .lt('holes_completed', 18)
+      .limit(1),
+  ])
+  const isLive = (roundInProgressCheck?.length ?? 0) > 0
 
   // Get user's primary league
   const { data: membership } = await db
@@ -145,7 +156,7 @@ export default async function PicksPage({
 
   // Fetch tee times from DataGolf (cached 5 min by Next.js fetch)
   // Plain object (not Map) so it's serialisable for the client component
-  const teeTimes: Record<string, { r1: string | null; r2: string | null }> = {}
+  const teeTimes: Record<string, { r1: string | null; r2: string | null; r3: string | null; r4: string | null }> = {}
   try {
     const fieldData = await dataGolf.getFieldUpdates()
     for (const fp of fieldData.field) {
@@ -158,6 +169,8 @@ export default async function PicksPage({
       teeTimes[normalised.toLowerCase()] = {
         r1: formatEdtToBst(fp.r1_teetime),
         r2: formatEdtToBst(fp.r2_teetime),
+        r3: formatEdtToBst(fp.r3_teetime),
+        r4: formatEdtToBst(fp.r4_teetime),
       }
     }
   } catch {
@@ -194,6 +207,7 @@ export default async function PicksPage({
             currentRound={tournament.current_round}
             selectedRound={selectedRound}
             availableRounds={filteredRounds}
+            isLive={isLive}
           />
         </Suspense>
       )}
