@@ -25,9 +25,9 @@ export async function GET(req: Request) {
   if (!leagueId || !round) return NextResponse.json({ error: 'Missing params' }, { status: 400 })
 
   const supabase = createServiceClient()
-  const roundNum = parseInt(round, 10)
 
-  // Members, picks, and chips in parallel
+  // Members, ALL picks (all rounds), and chips in parallel
+  // round param is kept for API compatibility but scores are aggregated across all rounds
   const [{ data: members }, { data: picks }, { data: chipsRows }] = await Promise.all([
     supabase
       .from('league_members')
@@ -35,9 +35,8 @@ export async function GET(req: Request) {
       .eq('league_id', leagueId),
     supabase
       .from('picks')
-      .select('user_id, player_id, score_vs_par, hole_number')
+      .select('user_id, player_id, score_vs_par, round')
       .eq('league_id', leagueId)
-      .eq('round', roundNum)
       .not('score_vs_par', 'is', null),
     supabase
       .from('chips')
@@ -75,22 +74,23 @@ export async function GET(req: Request) {
     }
   }
 
-  // Build postman lookup: user_id → player_id for this round
-  const postmanMap = new Map<string, string | null>()
-  const postmanCol = `postman_r${roundNum}_player_id` as
-    | 'postman_r1_player_id'
-    | 'postman_r2_player_id'
-    | 'postman_r3_player_id'
-    | 'postman_r4_player_id'
+  // Build postman lookup: user_id → { r1: playerId, r2: playerId, ... }
+  // Postman doubling applies per-round — each round has its own Postman selection
+  const postmanByUserRound = new Map<string, Map<number, string | null>>()
   chipsRows?.forEach((c) => {
-    postmanMap.set(c.user_id, c[postmanCol] ?? null)
+    const byRound = new Map<number, string | null>()
+    byRound.set(1, c.postman_r1_player_id ?? null)
+    byRound.set(2, c.postman_r2_player_id ?? null)
+    byRound.set(3, c.postman_r3_player_id ?? null)
+    byRound.set(4, c.postman_r4_player_id ?? null)
+    postmanByUserRound.set(c.user_id, byRound)
   })
 
-  // Aggregate scores per user — Postman doubling from chips table
+  // Aggregate scores across ALL rounds with per-round Postman doubling
   const userScores = new Map<string, { score: number; holes: number }>()
   picks?.forEach((pick) => {
     const base = pick.score_vs_par ?? 0
-    const postmanPlayerId = postmanMap.get(pick.user_id) ?? null
+    const postmanPlayerId = postmanByUserRound.get(pick.user_id)?.get(pick.round) ?? null
     const isPostman = postmanPlayerId !== null && pick.player_id === postmanPlayerId
     const score = isPostman ? base * 2 : base
     const existing = userScores.get(pick.user_id) ?? { score: 0, holes: 0 }

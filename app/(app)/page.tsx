@@ -76,9 +76,8 @@ export default async function HomePage() {
     leagueId
       ? svc
           .from('picks')
-          .select('user_id, player_id, score_vs_par')
+          .select('user_id, player_id, score_vs_par, round')
           .eq('league_id', leagueId)
-          .eq('round', tournament.current_round)
           .not('score_vs_par', 'is', null)
       : Promise.resolve({ data: null }),
     leagueId
@@ -113,19 +112,24 @@ export default async function HomePage() {
   // Position calculation
   let positionDisplay = '—'
   if (leagueId && leagueMembers?.length) {
-    const postmanCol = `postman_r${tournament.current_round}_player_id` as
-      | 'postman_r1_player_id' | 'postman_r2_player_id'
-      | 'postman_r3_player_id' | 'postman_r4_player_id'
-
-    const postmanMap = new Map<string, string | null>()
-    leagueChips?.forEach((c) => postmanMap.set(c.user_id, c[postmanCol] ?? null))
+    // Per-round Postman lookup
+    const postmanByUserRound = new Map<string, Map<number, string | null>>()
+    leagueChips?.forEach((c) => {
+      const byRound = new Map<number, string | null>()
+      byRound.set(1, c.postman_r1_player_id ?? null)
+      byRound.set(2, c.postman_r2_player_id ?? null)
+      byRound.set(3, c.postman_r3_player_id ?? null)
+      byRound.set(4, c.postman_r4_player_id ?? null)
+      postmanByUserRound.set(c.user_id, byRound)
+    })
 
     const memberScores = new Map<string, number>()
     leagueMembers.forEach((m) => memberScores.set(m.user_id, 0))
     allLeaguePicks?.forEach((pick) => {
       if (!memberScores.has(pick.user_id)) return
       const base = pick.score_vs_par ?? 0
-      const isPostman = postmanMap.get(pick.user_id) === pick.player_id
+      const postmanPlayerId = postmanByUserRound.get(pick.user_id)?.get(pick.round) ?? null
+      const isPostman = postmanPlayerId !== null && postmanPlayerId === pick.player_id
       const score = isPostman ? base * 2 : base
       memberScores.set(pick.user_id, (memberScores.get(pick.user_id) ?? 0) + score)
     })
