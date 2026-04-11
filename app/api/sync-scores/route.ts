@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
-import { calculateBasePrice, calculatePerformanceAdjustment, getPriceDirection } from '@/lib/pricing/engine'
+import { calculateBasePrice, getPriceDirection } from '@/lib/pricing/engine'
 import { dataGolf } from '@/lib/datagolf/client'
 
 // ESPN never shows "CUT" as a score string — cut players just get numeric scores.
@@ -172,36 +172,21 @@ export async function GET() {
 
 
     // ── Bulk odds-price refresh (runs every sync cycle when DataGolf data available) ──
-    // Updates prices for all active players using live win probability + their stored
-    // current_round_score / holes_completed — independent of whether new holes arrive.
+    // Live win probability is the primary price driver.
+    // Current round scoring adds a small modifier (±£2m max) on top.
+    // Previous round performance is NOT factored in — odds already reflect that.
     if (winProbByPlayer.size > 0) {
-      // Fetch round-start prices for all active players in one query
-      const { data: allRoundStartPrices } = await supabase
-        .from('price_history')
-        .select('player_id, price')
-        .eq('round', activeSyncRound)
-        .in('player_id', players.map((p) => p.id))
-        .order('hole_number', { ascending: true })
-
-      // Keep only first (earliest) entry per player
-      const roundStartByPlayer = new Map<string, number>()
-      allRoundStartPrices?.forEach((row) => {
-        if (!roundStartByPlayer.has(row.player_id)) roundStartByPlayer.set(row.player_id, row.price)
-      })
-
       for (const player of players) {
         const winProb = winProbByPlayer.get(player.name_full.toLowerCase())
           ?? winProbByPlayer.get(player.name.toLowerCase())
-        if (winProb == null) continue  // No DataGolf data — skip
+        if (winProb == null) continue
 
-        const basePrice = roundStartByPlayer.get(player.id) ?? player.current_price
-        const perfAdj = calculatePerformanceAdjustment(basePrice, player.current_round_score, player.holes_completed)
-        const perfPrice = basePrice + perfAdj
         const oddsPrice = calculateBasePrice(winProb)
-        const blended = (oddsPrice + perfPrice) / 2
-        const newPrice = Math.max(1, Math.min(20, Math.round(blended * 2) / 2))
+        // Small current-round modifier: £0.15 per stroke, capped at ±£2m
+        const roundMod = Math.max(-2, Math.min(2, -(player.current_round_score) * 0.15))
+        const newPrice = Math.max(1, Math.min(20, Math.round((oddsPrice + roundMod) * 2) / 2))
 
-        if (newPrice === player.current_price) continue  // No change — skip DB write
+        if (newPrice === player.current_price) continue
 
         const direction = getPriceDirection(player.current_price, newPrice)
         await supabase
@@ -209,7 +194,6 @@ export async function GET() {
           .update({ current_price: newPrice, price_direction: direction })
           .eq('id', player.id)
 
-        // Update local copy for subsequent logic in this cycle
         player.current_price = newPrice
       }
     }
@@ -358,23 +342,13 @@ export async function GET() {
         const holesCompleted = roundScores?.length ?? 0
         const totalScore = allRoundScores?.reduce((sum, h) => sum + (h.score_vs_par ?? 0), 0) ?? 0
 
-        // Base price = price at round start (from price_history), or current_price if no history yet
-        const basePrice = roundStartPriceRow?.price ?? player.current_price
-
-        // ── Odds-blended pricing ───────────────────────────────────────────────
-        // perfPrice: round-start base + current-round scoring adjustment
-        const perfAdj = calculatePerformanceAdjustment(basePrice, currentRoundScore, holesCompleted)
-        const perfPrice = basePrice + perfAdj
-
-        // oddsPrice: what the player would be priced at based on current live win probability
+        // Odds-primary pricing: win probability sets the base, current round adds ±£2m max
         const winProb = winProbByPlayer.get(player.name_full.toLowerCase())
           ?? winProbByPlayer.get(player.name.toLowerCase())
-        const oddsPrice = winProb != null ? calculateBasePrice(winProb) : perfPrice
-
-        // Blend 50/50 — live odds have a meaningful impact but don't fully override performance
-        // If DataGolf is unavailable (no winProb), fall back to performance-only
-        const blended = winProb != null ? (oddsPrice + perfPrice) / 2 : perfPrice
-        const newPrice = Math.max(1, Math.min(20, Math.round(blended * 2) / 2))
+        const basePrice = roundStartPriceRow?.price ?? player.current_price
+        const oddsBase = winProb != null ? calculateBasePrice(winProb) : basePrice
+        const roundMod = Math.max(-2, Math.min(2, -(currentRoundScore) * 0.15))
+        const newPrice = Math.max(1, Math.min(20, Math.round((oddsBase + roundMod) * 2) / 2))
         const direction = getPriceDirection(player.current_price, newPrice)
 
         await supabase
