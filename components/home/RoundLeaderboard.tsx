@@ -47,8 +47,9 @@ export default function RoundLeaderboard({
           const roundEntry = (c.linescores ?? []).find((ls: { period: number }) => ls.period === currentRound)
           if (!roundEntry) continue
 
-          const roundTotal = roundEntry.value ?? 0
-          const roundScore = roundTotal - 72 // Augusta par = 72
+          // displayValue is already vs par: "+1", "-6", "E"
+          const dvStr = (roundEntry.displayValue ?? 'E') as string
+          const roundScore = dvStr === 'E' ? 0 : parseInt(dvStr, 10) || 0
           const holeScores = (roundEntry.linescores ?? []).filter(
             (h: { value?: number; displayValue?: string }) => {
               const v = h.displayValue ?? (h.value != null ? String(Math.round(h.value)) : undefined)
