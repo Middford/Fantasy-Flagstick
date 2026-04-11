@@ -76,12 +76,12 @@ export default function PlayerList({
     if (aMaxUses !== bMaxUses) return aMaxUses ? 1 : -1
     if (aCantAfford !== bCantAfford) return aCantAfford ? 1 : -1
 
-    // Within each group: earliest tee time first (HH:MM compares lexicographically)
-    const aTee = getTeeTime(a)
-    const bTee = getTeeTime(b)
-    if (aTee !== bTee) return aTee.localeCompare(bTee)
+    // Within each group: best tournament score first (lowest total_score = best)
+    const aScore = a.total_score ?? 999
+    const bScore = b.total_score ?? 999
+    if (aScore !== bScore) return aScore - bScore
 
-    // Tiebreak: higher price first (stars first within same slot)
+    // Tiebreak: higher price first
     return b.current_price - a.current_price
   })
 
