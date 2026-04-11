@@ -52,6 +52,7 @@ export default function PickScreen({
   const [selectedHole, setSelectedHole] = useState<number>(1)
   const [saving, setSaving] = useState(false)
   const [postmanMode, setPostmanMode] = useState(false)
+  const [mulliganMode, setMulliganMode] = useState<number | null>(null) // hole number being mulligan'd
   const [sponsorError, setSponsorError] = useState<string | null>(null)
 
   // DataGolf secondary data
@@ -248,8 +249,41 @@ export default function PickScreen({
     setPostmanMode(false)
   }
 
-  async function handleMulligan() {
-    alert('Mulligan coming soon — swap a locked pick for a player who hasn\'t completed that hole yet.')
+  function handleMulliganStart() {
+    // Enter mulligan mode — user picks a locked hole, then picks a replacement player
+    // Find first locked hole to pre-select
+    const lockedHoles = roundPicks.filter((p) => p.is_locked && p.player_id)
+    if (lockedHoles.length === 0) {
+      alert('No locked picks to swap.')
+      return
+    }
+    setMulliganMode(lockedHoles[0].hole_number)
+    setSelectedHole(lockedHoles[0].hole_number)
+  }
+
+  async function handleMulliganSwap(newPlayer: Player) {
+    if (!chips || !mulliganMode) return
+    setSaving(true)
+    const res = await fetch('/api/chips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'mulligan',
+        chipsId: chips.id,
+        leagueId,
+        round,
+        holeNumber: mulliganMode,
+        newPlayerId: newPlayer.id,
+        newPricePaid: newPlayer.current_price,
+      }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.picks) setPicks(data.picks)
+      setChips({ ...chips, mulligan_used: true, mulligan_round: round, mulligan_hole: mulliganMode })
+    }
+    setMulliganMode(null)
+    setSaving(false)
   }
 
   const selectedHoleData = initialHoles.find((h) => h.number === selectedHole)
@@ -307,7 +341,7 @@ export default function PickScreen({
         firstPickLocked={firstPickLocked}
         onUseSponsorshipDeal={handleSponsorshipDeal}
         onSelectPostman={() => setPostmanMode(true)}
-        onUseMulligan={handleMulligan}
+        onUseMulligan={handleMulliganStart}
       />
 
       {/* Postman mode banner */}
@@ -319,17 +353,31 @@ export default function PickScreen({
         </div>
       )}
 
+      {mulliganMode && (
+        <div className="mx-4 mt-2 px-3 py-2.5 rounded-xl bg-[#0a2d2b] border border-[#20a090] flex items-center gap-2">
+          <span className="text-base">🔄</span>
+          <p className="text-[11px] text-[#20a090] flex-1">
+            Swapping hole {mulliganMode} — pick a replacement player below
+          </p>
+          <button onClick={() => setMulliganMode(null)} className="text-[#5a7a65] text-sm">Cancel</button>
+        </div>
+      )}
+
       {/* Hole grid */}
       <HoleGrid
         holes={initialHoles}
         picks={picks}
         players={players}
-        selectedHole={selectedHole}
+        selectedHole={mulliganMode ?? selectedHole}
         postmanPlayerId={postmanPlayerId}
         onSelectHole={(hole) => {
           if (postmanMode) {
             const pick = roundPicks.find((p) => p.hole_number === hole && p.player_id)
             if (pick) handlePostmanHole(hole)
+          } else if (mulliganMode) {
+            // In mulligan mode, allow switching which locked hole to swap
+            const pick = roundPicks.find((p) => p.hole_number === hole && p.is_locked)
+            if (pick) setMulliganMode(hole)
           } else {
             setSelectedHole(hole)
           }
@@ -404,19 +452,19 @@ export default function PickScreen({
       {/* Player list */}
       <PlayerList
         players={players}
-        holeNumber={selectedHole}
+        holeNumber={mulliganMode ?? selectedHole}
         round={round}
         picks={usesMap}
-        remainingBudget={remaining}
-        currentPickPlayerId={currentPick?.player_id ?? null}
-        currentPickPricePaid={currentPick?.price_paid ?? 0}
-        currentPickLocked={currentPick?.is_locked ?? false}
+        remainingBudget={mulliganMode ? 999 : remaining}
+        currentPickPlayerId={mulliganMode ? null : (currentPick?.player_id ?? null)}
+        currentPickPricePaid={mulliganMode ? 0 : (currentPick?.price_paid ?? 0)}
+        currentPickLocked={mulliganMode ? false : (currentPick?.is_locked ?? false)}
         postmanPlayerId={postmanPlayerId}
-        completedHoleScores={lockedOutMap}
+        completedHoleScores={mulliganMode ? new Map() : lockedOutMap}
         teeTimes={teeTimes}
         winPctMap={winPctMap}
         currentRound={currentRound}
-        onPick={handlePick}
+        onPick={mulliganMode ? handleMulliganSwap : handlePick}
       />
 
     </div>

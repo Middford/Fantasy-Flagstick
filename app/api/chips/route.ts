@@ -24,6 +24,15 @@ const schema = z.discriminatedUnion('action', [
     round: z.number().int().min(1).max(4),
     playerId: z.string().uuid(),
   }),
+  z.object({
+    action: z.literal('mulligan'),
+    chipsId: z.string().uuid(),
+    leagueId: z.string().uuid(),
+    round: z.number().int().min(1).max(4),
+    holeNumber: z.number().int().min(1).max(18),
+    newPlayerId: z.string().uuid(),
+    newPricePaid: z.number(),
+  }),
 ])
 
 export async function POST(req: Request) {
@@ -126,6 +135,56 @@ export async function POST(req: Request) {
       .update({ [col]: parsed.data.playerId })
       .eq('id', parsed.data.chipsId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  if (parsed.data.action === 'mulligan') {
+    const { leagueId, round, holeNumber, newPlayerId, newPricePaid } = parsed.data
+
+    // Verify the pick exists and is locked
+    const { data: pick } = await supabase
+      .from('picks')
+      .select('id, player_id, is_locked')
+      .eq('league_id', leagueId)
+      .eq('user_id', userId)
+      .eq('round', round)
+      .eq('hole_number', holeNumber)
+      .single()
+
+    if (!pick) return NextResponse.json({ error: 'Pick not found' }, { status: 404 })
+    if (!pick.is_locked) return NextResponse.json({ error: 'Pick is not locked — just change it normally' }, { status: 409 })
+
+    // Swap the player on the pick
+    const { error: pickErr } = await supabase
+      .from('picks')
+      .update({
+        player_id: newPlayerId,
+        price_paid: newPricePaid,
+        is_mulligan_used: true,
+        mulligan_replacement_player_id: pick.player_id, // store original player
+        score_vs_par: null, // clear score — will be filled by sync
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', pick.id)
+
+    if (pickErr) return NextResponse.json({ error: pickErr.message }, { status: 500 })
+
+    // Mark mulligan as used on chips
+    const { error: chipErr } = await supabase
+      .from('chips')
+      .update({ mulligan_used: true, mulligan_round: round, mulligan_hole: holeNumber })
+      .eq('id', parsed.data.chipsId)
+
+    if (chipErr) return NextResponse.json({ error: chipErr.message }, { status: 500 })
+
+    // Return updated picks
+    const { data: picks } = await supabase
+      .from('picks')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('league_id', leagueId)
+      .eq('round', round)
+
+    return NextResponse.json({ ok: true, picks: picks ?? [] })
   }
 
   return NextResponse.json({ ok: true })
