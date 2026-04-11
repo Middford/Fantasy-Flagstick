@@ -2,6 +2,9 @@
 // No API key required. Poll every 30 seconds during active tournament.
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga'
+// The leaderboard endpoint with player status (Missed Cut / Scheduled / In Progress)
+// lives on a different subdomain from the main scoreboard
+const ESPN_WEB_BASE = 'https://site.web.api.espn.com/apis/site/v2/sports/golf'
 
 // Per-hole score nested inside a round entry
 export interface EspnHoleScore {
@@ -46,14 +49,21 @@ export interface EspnScoreboard {
   }>
 }
 
-export interface EspnLeaderboard {
-  tournament: {
-    id: string
-    name: string
-    round: number
-    status: string
+// Leaderboard competitor has a status field not present on scoreboard competitors
+export interface EspnLeaderboardCompetitor extends EspnCompetitor {
+  status?: {
+    type?: {
+      description?: string  // "Missed Cut" | "In Progress" | "Scheduled" | "Complete"
+    }
   }
-  competitors: EspnCompetitor[]
+}
+
+export interface EspnLeaderboard {
+  events: Array<{
+    competitions: Array<{
+      competitors: EspnLeaderboardCompetitor[]
+    }>
+  }>
 }
 
 /** Get current PGA Tour scoreboard */
@@ -65,9 +75,13 @@ export async function getScoreboard(): Promise<EspnScoreboard> {
   return res.json()
 }
 
-/** Get leaderboard for specific event */
+/**
+ * Get leaderboard with player status (Missed Cut / In Progress / Scheduled).
+ * Uses the ESPN web API which includes status on each competitor — the main
+ * scoreboard endpoint does NOT include this field.
+ */
 export async function getLeaderboard(eventId: string): Promise<EspnLeaderboard> {
-  const res = await fetch(`${ESPN_BASE}/leaderboard?event=${eventId}`, {
+  const res = await fetch(`${ESPN_WEB_BASE}/leaderboard?event=${eventId}`, {
     next: { revalidate: 0 },
   })
   if (!res.ok) throw new Error(`ESPN leaderboard error: ${res.status}`)

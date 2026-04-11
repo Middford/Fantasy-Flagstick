@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
+import { getScoreboard, getLeaderboard, parseHoleScores } from '@/lib/espn/client'
 import { getPriceDirection } from '@/lib/pricing/engine'
 import { dataGolf } from '@/lib/datagolf/client'
 
@@ -158,67 +158,38 @@ export async function GET() {
         console.log(`Marked ${wdPlayerIds.length} players as withdrawn`)
       }
 
-      // Cut detection — two methods:
-      // 1. After R2 complete: Masters uses top-50-and-ties. Find the 50th-best score
-      //    from ESPN competitors, everyone worse than that is cut.
-      // 2. DataGolf fallback: make_cut ≈ 0 (R3+)
-      if (activeSyncRound >= 2) {
-        // Parse all ESPN total scores
-        const espnScores = competitors.map((c) => {
-          const s = (c.score ?? '').trim()
-          if (s === 'E') return 0
-          const n = parseInt(s, 10)
-          return isNaN(n) ? null : n
-        }).filter((s): s is number => s !== null)
-        espnScores.sort((a, b) => a - b)
-
-        // Masters cut: top 50 and ties after R2
-        // The 50th score (index 49) defines the cut line; all ties at that score also make it
-        const cutLine = espnScores.length >= 50 ? espnScores[49] : null
-
-        // Only apply cut if R2 is actually complete (≥50 players with 18 R2 holes)
-        const r2Complete = competitors.filter((c) => {
-          const r2 = (c.linescores ?? []).find((ls: { period: number }) => ls.period === 2)
-          const realHoles = (r2?.linescores ?? []).filter((h: { value?: number }) => h.value != null && h.value > 0).length
-          return realHoles >= 18
-        }).length >= 50
-
-        if (cutLine != null && r2Complete) {
+      // Cut detection: use ESPN leaderboard status field (the only reliable source).
+      // The leaderboard endpoint (site.web.api.espn.com) includes a status.type.description
+      // field per competitor: "Missed Cut" / "In Progress" / "Scheduled" / "Complete".
+      // This is populated once R3 tee times are published.
+      {
+        const eventId = mastersEvent.id
+        try {
+          const leaderboard = await getLeaderboard(eventId)
+          const lbCompetitors = leaderboard.events?.[0]?.competitions?.[0]?.competitors ?? []
           const cutPlayerIds: string[] = []
-          for (const competitor of competitors) {
-            const s = (competitor.score ?? '').trim()
-            const totalToPar = s === 'E' ? 0 : parseInt(s, 10)
-            if (isNaN(totalToPar) || totalToPar <= cutLine) continue
 
-            const espnName = competitor.athlete?.displayName ?? ''
-            const espnShort = competitor.athlete?.shortName ?? ''
+          for (const lbComp of lbCompetitors) {
+            const status = lbComp.status?.type?.description ?? ''
+            if (status !== 'Missed Cut') continue
+
+            const espnName = lbComp.athlete?.displayName ?? ''
+            const espnShort = lbComp.athlete?.shortName ?? ''
             const player = players.find(
               (p) =>
-                p.espn_id === competitor.id ||
+                p.espn_id === lbComp.id ||
                 (espnName && p.name_full.toLowerCase() === espnName.toLowerCase()) ||
                 (espnShort && p.name.toLowerCase() === espnShort.toLowerCase())
             )
             if (player && player.status === 'active') cutPlayerIds.push(player.id)
           }
-          if (cutPlayerIds.length > 0) {
-            await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
-            console.log(`Marked ${cutPlayerIds.length} players as cut (ESPN cut line: +${cutLine})`)
-          }
-        }
 
-        // DataGolf fallback for R3+
-        if (activeSyncRound >= 3 && makeCutByPlayer.size > 0) {
-          const cutPlayerIds: string[] = []
-          for (const player of players) {
-            if (player.status !== 'active') continue
-            const makeCut = makeCutByPlayer.get(player.name_full.toLowerCase())
-              ?? makeCutByPlayer.get(player.name.toLowerCase())
-            if (makeCut != null && makeCut <= 0.01) cutPlayerIds.push(player.id)
-          }
           if (cutPlayerIds.length > 0) {
             await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
-            console.log(`Marked ${cutPlayerIds.length} players as cut (DataGolf)`)
+            console.log(`Marked ${cutPlayerIds.length} players as cut (ESPN leaderboard)`)
           }
+        } catch {
+          // ESPN leaderboard unavailable — cut detection deferred
         }
       }
     }
