@@ -46,9 +46,15 @@ export default async function PicksPage({
     )
   }
 
-  // Show all completed/current rounds. Also show the NEXT round once the cut has been made
-  // (any player marked 'cut' means the field is confirmed for R3/R4).
-  const cutMade = players?.some((p) => p.status === 'cut') ?? false
+  // Check if cut has been made (any player with status='cut') — determines whether to show next round tab
+  const { data: cutCheck } = await db
+    .from('players')
+    .select('id')
+    .eq('tournament_id', tournament.id)
+    .eq('status', 'cut')
+    .limit(1)
+
+  const cutMade = (cutCheck?.length ?? 0) > 0
   const availableRounds = Array.from(
     { length: tournament.current_round },
     (_, i) => i + 1

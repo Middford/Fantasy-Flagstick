@@ -39,7 +39,7 @@ export async function GET() {
   // Get all active players for this tournament
   const { data: players } = await supabase
     .from('players')
-    .select('id, name, name_full, espn_id, current_price, current_round_score, holes_completed, price_direction')
+    .select('id, name, name_full, espn_id, current_price, current_round_score, holes_completed, price_direction, status')
     .eq('tournament_id', tournament.id)
     .eq('status', 'active')
 
