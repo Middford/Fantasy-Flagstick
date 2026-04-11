@@ -140,24 +140,22 @@ export default function PlayerList({
                 {lockedOut && (
                   <span className="text-[#e8a020]">Locked out</span>
                 )}
-                {(player.total_score != null && (player.total_score !== 0 || player.holes_completed > 0)) && (
-                  <span className="text-[#8ab89a]">
-                    · {player.total_score === 0 ? 'E' : player.total_score > 0 ? `+${player.total_score}` : player.total_score}
-                    {player.current_round_score !== 0 && (
-                      <span className={player.current_round_score < 0 ? 'text-[#4adb7a]' : 'text-[#e05555]'}>
-                        {' '}(R{currentRound}: {player.current_round_score > 0 ? `+${player.current_round_score}` : player.current_round_score})
-                      </span>
-                    )}
+                {player.holes_completed > 0 && player.current_round_score !== 0 && (
+                  <span className={`${player.current_round_score < 0 ? 'text-[#4adb7a]' : 'text-[#e05555]'}`}>
+                    · R{currentRound}: {scoreLabel(player.current_round_score)} thru {player.holes_completed}
                   </span>
+                )}
+                {player.holes_completed > 0 && player.current_round_score === 0 && (
+                  <span className="text-[#8ab89a]">· R{currentRound}: E thru {player.holes_completed}</span>
                 )}
               </div>
             </div>
 
-            {/* Today's score */}
-            <div className="text-center w-10">
-              {player.holes_completed > 0 ? (
-                <span className="font-score text-sm text-white">
-                  {scoreLabel(player.current_round_score)}
+            {/* Tournament score */}
+            <div className="text-center w-12">
+              {(player.total_score != null && (player.total_score !== 0 || player.holes_completed > 0)) ? (
+                <span className={`font-score text-sm font-bold ${player.total_score < 0 ? 'text-[#4adb7a]' : player.total_score > 0 ? 'text-[#e05555]' : 'text-white'}`}>
+                  {scoreLabel(player.total_score)}
                 </span>
               ) : (
                 <span className="text-[#5a7a65] text-sm">—</span>
