@@ -171,6 +171,49 @@ export async function GET() {
 
 
 
+    // ── Bulk odds-price refresh (runs every sync cycle when DataGolf data available) ──
+    // Updates prices for all active players using live win probability + their stored
+    // current_round_score / holes_completed — independent of whether new holes arrive.
+    if (winProbByPlayer.size > 0) {
+      // Fetch round-start prices for all active players in one query
+      const { data: allRoundStartPrices } = await supabase
+        .from('price_history')
+        .select('player_id, price')
+        .eq('round', activeSyncRound)
+        .in('player_id', players.map((p) => p.id))
+        .order('hole_number', { ascending: true })
+
+      // Keep only first (earliest) entry per player
+      const roundStartByPlayer = new Map<string, number>()
+      allRoundStartPrices?.forEach((row) => {
+        if (!roundStartByPlayer.has(row.player_id)) roundStartByPlayer.set(row.player_id, row.price)
+      })
+
+      for (const player of players) {
+        const winProb = winProbByPlayer.get(player.name_full.toLowerCase())
+          ?? winProbByPlayer.get(player.name.toLowerCase())
+        if (winProb == null) continue  // No DataGolf data — skip
+
+        const basePrice = roundStartByPlayer.get(player.id) ?? player.current_price
+        const perfAdj = calculatePerformanceAdjustment(basePrice, player.current_round_score, player.holes_completed)
+        const perfPrice = basePrice + perfAdj
+        const oddsPrice = calculateBasePrice(winProb)
+        const blended = (oddsPrice + perfPrice) / 2
+        const newPrice = Math.max(1, Math.min(20, Math.round(blended * 2) / 2))
+
+        if (newPrice === player.current_price) continue  // No change — skip DB write
+
+        const direction = getPriceDirection(player.current_price, newPrice)
+        await supabase
+          .from('players')
+          .update({ current_price: newPrice, price_direction: direction })
+          .eq('id', player.id)
+
+        // Update local copy for subsequent logic in this cycle
+        player.current_price = newPrice
+      }
+    }
+
     // ── Batch fetch already-confirmed hole scores ──────────────────────────────
     // One query replaces N×18 individual SELECTs.
     const { data: confirmedScores } = await supabase
