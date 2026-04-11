@@ -45,6 +45,7 @@ export default function HoleChip({
 }: HoleChipProps) {
   const hasScore = scoreVsPar !== null && scoreVsPar !== undefined
   const hasPick = playerName != null
+  const isLive = isLocked && !hasScore && hasPick  // Player currently on the course
 
   // Show just the surname for compactness: "S. Scheffler" → "Scheffler"
   const surname = playerName
@@ -57,7 +58,9 @@ export default function HoleChip({
       className={`
         relative flex flex-col items-center justify-center gap-0.5
         w-full h-[72px] rounded-lg font-bold transition-all px-0.5
-        ${isLocked
+        ${isLive
+          ? 'bg-[#1a2a10] border-2 border-[#e8a020] animate-pulse'
+          : isLocked
           ? 'bg-[#06100a] border border-[#1a3d2b]'
           : isSelected
           ? 'bg-[#1a3d2b] border-2 border-[#c9a227] scale-105'
@@ -81,7 +84,9 @@ export default function HoleChip({
           M
         </span>
       )}
-      {isLocked && (
+      {isLive ? (
+        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#e8a020] animate-pulse" />
+      ) : isLocked && (
         <span className="absolute -top-1 -right-1 text-[8px]">🔒</span>
       )}
 
@@ -92,7 +97,7 @@ export default function HoleChip({
 
       {/* Player name — surname only, truncated */}
       {surname ? (
-        <span className={`text-[8px] leading-tight w-full text-center truncate px-0.5 ${isLocked ? 'text-[#5a7a65]' : 'text-white'}`}>
+        <span className={`text-[8px] leading-tight w-full text-center truncate px-0.5 ${isLive ? 'text-[#e8a020]' : isLocked ? 'text-[#5a7a65]' : 'text-white'}`}>
           {surname}
         </span>
       ) : (

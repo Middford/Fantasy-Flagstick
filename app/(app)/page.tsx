@@ -2,7 +2,10 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import LivePill from '@/components/ui/LivePill'
 import HomeSync from '@/components/ui/HomeSync'
-import BeatTheBookieTab from '@/components/leaderboard/BeatTheBookieTab'
+import LiveTicker from '@/components/ui/LiveTicker'
+import FantasyLeaderboard from '@/components/home/FantasyLeaderboard'
+import TournamentLeaderboard from '@/components/home/TournamentLeaderboard'
+import RoundLeaderboard from '@/components/home/RoundLeaderboard'
 
 function positionLabel(pos: number, tied: boolean): string {
   const suffixes = ['th', 'st', 'nd', 'rd']
@@ -63,7 +66,7 @@ export default async function HomePage() {
   ] = await Promise.all([
     svc
       .from('picks')
-      .select('score_vs_par, is_postman, player_id')
+      .select('score_vs_par, is_postman, player_id, hole_number, is_locked, players(name)')
       .eq('user_id', userId)
       .eq('tournament_id', tournament.id)
       .eq('round', tournament.current_round)
@@ -197,15 +200,24 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {/* Tabs: Leaderboard | Bookie | Course */}
-      <BeatTheBookieTab
-        tournamentId={tournament.id}
-        round={tournament.current_round}
-        displayName={displayName}
-        leagueId={leagueId}
-        userId={userId}
-        holes={holes ?? []}
+      {/* Live ticker — shows user's picks currently on the course */}
+      <LiveTicker
+        picks={(myPicksRaw ?? [])
+          .filter((p) => p.is_locked && p.score_vs_par === null && p.player_id)
+          .map((p) => ({
+            playerName: (p.players as { name?: string } | null)?.name ?? 'Unknown',
+            holeNumber: p.hole_number,
+          }))}
       />
+
+      {/* Fantasy game leaderboard */}
+      <FantasyLeaderboard leagueId={leagueId} userId={userId} />
+
+      {/* Live Masters tournament leaderboard */}
+      <TournamentLeaderboard />
+
+      {/* Current round scores */}
+      <RoundLeaderboard tournamentId={tournament.id} currentRound={tournament.current_round} />
     </div>
   )
 }
