@@ -16,7 +16,8 @@ export default function RoundTabs({ currentRound, selectedRound, availableRounds
   function selectRound(round: number) {
     const params = new URLSearchParams(searchParams.toString())
     params.set('round', String(round))
-    router.push(`/picks?${params.toString()}`)
+    // Use window.location for full page reload — router.push caches server components
+    window.location.href = `/picks?${params.toString()}`
   }
 
   const labels: Record<number, string> = { 1: 'R1', 2: 'R2', 3: 'R3', 4: 'R4' }
