@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getScoreboard, parseHoleScores } from '@/lib/espn/client'
-import { applyPriceUpdate, calculatePerformanceAdjustment, getPriceDirection } from '@/lib/pricing/engine'
+import { calculateBasePrice, calculatePerformanceAdjustment, getPriceDirection } from '@/lib/pricing/engine'
 import { dataGolf } from '@/lib/datagolf/client'
 
 // ESPN never shows "CUT" as a score string — cut players just get numeric scores.
@@ -110,6 +110,24 @@ export async function GET() {
       }
     }
 
+    // ── Fetch DataGolf in-play predictions (used for cut detection + odds pricing) ───
+    // Normalised name → win probability; also carries make_cut for R3+
+    const winProbByPlayer = new Map<string, number>()
+    const makeCutByPlayer = new Map<string, number>()
+    try {
+      const inPlay = await dataGolf.getInPlayPredictions()
+      for (const entry of inPlay.data) {
+        const parts = entry.player_name.replace(/,/g, '').split(' ').filter(Boolean)
+        const normalised = parts.length >= 2
+          ? `${parts[parts.length - 1]} ${parts.slice(0, -1).join(' ')}`.toLowerCase()
+          : entry.player_name.toLowerCase()
+        if (entry.win != null) winProbByPlayer.set(normalised, entry.win)
+        if (entry.make_cut != null) makeCutByPlayer.set(normalised, entry.make_cut)
+      }
+    } catch {
+      // DataGolf unavailable — odds pricing falls back to performance-only this cycle
+    }
+
     // ── Cut/WD detection ──────────────────────────────────────────────────────
     // ESPN never shows "CUT" as a score string — all players show numeric totals.
     // Use DataGolf in-play predictions: make_cut ≈ 0 means the player missed the cut.
@@ -136,28 +154,17 @@ export async function GET() {
       }
 
       // Cut detection from DataGolf in-play predictions (only after R2+)
-      if (activeSyncRound >= 3) {
-        try {
-          const inPlay = await dataGolf.getInPlayPredictions()
-          const cutPlayerIds: string[] = []
-          for (const entry of inPlay.data) {
-            if ((entry.make_cut ?? 1) > 0.01) continue  // Still in or not yet determined
-            // Normalise DataGolf name "Last, First" → "First Last"
-            const parts = entry.player_name.replace(/,/g, '').split(' ').filter(Boolean)
-            const normalised = parts.length >= 2
-              ? `${parts[parts.length - 1]} ${parts.slice(0, -1).join(' ')}`.toLowerCase()
-              : entry.player_name.toLowerCase()
-            const player = players.find(
-              (p) => p.name_full.toLowerCase() === normalised || p.name.toLowerCase() === normalised
-            )
-            if (player && player.status === 'active') cutPlayerIds.push(player.id)
-          }
-          if (cutPlayerIds.length > 0) {
-            await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
-            console.log(`Marked ${cutPlayerIds.length} players as cut (DataGolf)`)
-          }
-        } catch {
-          // DataGolf unavailable — cut detection deferred to next cycle
+      if (activeSyncRound >= 3 && makeCutByPlayer.size > 0) {
+        const cutPlayerIds: string[] = []
+        for (const player of players) {
+          if (player.status !== 'active') continue
+          const makeCut = makeCutByPlayer.get(player.name_full.toLowerCase())
+            ?? makeCutByPlayer.get(player.name.toLowerCase())
+          if (makeCut != null && makeCut <= 0.01) cutPlayerIds.push(player.id)
+        }
+        if (cutPlayerIds.length > 0) {
+          await supabase.from('players').update({ status: 'cut' }).in('id', cutPlayerIds)
+          console.log(`Marked ${cutPlayerIds.length} players as cut (DataGolf)`)
         }
       }
     }
@@ -311,9 +318,20 @@ export async function GET() {
         // Base price = price at round start (from price_history), or current_price if no history yet
         const basePrice = roundStartPriceRow?.price ?? player.current_price
 
-        // Calculate new price from stable base — avoids compounding on every hole
-        // Demand adjustment is a one-time factor built into the base, not re-applied per hole
-        const newPrice = applyPriceUpdate(basePrice, calculatePerformanceAdjustment(basePrice, currentRoundScore, holesCompleted), 0, 0)
+        // ── Odds-blended pricing ───────────────────────────────────────────────
+        // perfPrice: round-start base + current-round scoring adjustment
+        const perfAdj = calculatePerformanceAdjustment(basePrice, currentRoundScore, holesCompleted)
+        const perfPrice = basePrice + perfAdj
+
+        // oddsPrice: what the player would be priced at based on current live win probability
+        const winProb = winProbByPlayer.get(player.name_full.toLowerCase())
+          ?? winProbByPlayer.get(player.name.toLowerCase())
+        const oddsPrice = winProb != null ? calculateBasePrice(winProb) : perfPrice
+
+        // Blend 50/50 — live odds have a meaningful impact but don't fully override performance
+        // If DataGolf is unavailable (no winProb), fall back to performance-only
+        const blended = winProb != null ? (oddsPrice + perfPrice) / 2 : perfPrice
+        const newPrice = Math.max(1, Math.min(20, Math.round(blended * 2) / 2))
         const direction = getPriceDirection(player.current_price, newPrice)
 
         await supabase
