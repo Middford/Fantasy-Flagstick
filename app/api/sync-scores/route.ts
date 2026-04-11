@@ -47,6 +47,9 @@ export async function GET() {
 
   let scoresUpdated = 0
   let picksLocked = 0
+  let pricesChanged = 0
+  let syncRound = 0
+  const priceDebug: Array<{ name: string; r1: number; ts: number; np: number; cp: number }> = []
 
   try {
     const scoreboard = await getScoreboard()
@@ -201,22 +204,28 @@ export async function GET() {
     // Tier-asymmetric weight penalises expensive players more for bad play,
     // rewards cheap players more for good play.
     // Cap: ±£4m from price_r1, hard ceiling £16m, hard floor £1m.
+    syncRound = activeSyncRound
     {
       for (const player of players) {
         const origPrice = player.price_r1 ?? 8
         const totalScore = player.total_score ?? 0
-        const rawImpact = -totalScore * 0.5  // £0.5m per stroke under/over par
+        const rawImpact = -totalScore * 0.5
 
         const tier = Math.max(0, Math.min(1, (origPrice - 4) / 12))
         const weight = rawImpact >= 0
-          ? (1.5 - tier)   // outperforming: cheap → 1.5x, expensive → 0.5x
-          : (0.5 + tier)   // underperforming: expensive → 1.5x, cheap → 0.5x
+          ? (1.5 - tier)
+          : (0.5 + tier)
 
         const adj = rawImpact * weight
 
         const floor = Math.max(1, origPrice - 4)
         const ceiling = Math.min(16, origPrice + 4)
         const newPrice = Math.max(floor, Math.min(ceiling, Math.round((origPrice + adj) * 2) / 2))
+
+        // Debug: track first 5 price changes and Jason Day specifically
+        if (priceDebug.length < 5 || player.name_full.includes('Day')) {
+          priceDebug.push({ name: player.name_full, r1: origPrice, ts: totalScore, np: newPrice, cp: player.current_price })
+        }
 
         if (newPrice === player.current_price) continue
 
@@ -227,6 +236,7 @@ export async function GET() {
           .eq('id', player.id)
 
         player.current_price = newPrice
+        pricesChanged++
       }
     }
 
@@ -434,6 +444,9 @@ export async function GET() {
     ok: true,
     scoresUpdated,
     picksLocked,
+    pricesChanged,
+    priceDebug,
+    round: syncRound,
     timestamp: new Date().toISOString(),
   })
 }
