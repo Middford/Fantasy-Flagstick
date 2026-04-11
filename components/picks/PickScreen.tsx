@@ -389,6 +389,7 @@ export default function PickScreen({
         completedHoleScores={lockedOutMap}
         teeTimes={teeTimes}
         winPctMap={winPctMap}
+        currentRound={currentRound}
         onPick={handlePick}
       />
 

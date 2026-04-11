@@ -20,6 +20,7 @@ interface PlayerListProps {
   beatTheBookieMap?: Map<string, { index: number; direction: string }>
   teeTimes?: Record<string, TeeTime>    // player name_full.toLowerCase() → tee times
   winPctMap?: Map<string, number>       // datagolf_id → win probability (0–1)
+  currentRound?: number                 // live tournament round (for round score display)
   onPick: (player: Player) => void
 }
 
@@ -48,6 +49,7 @@ export default function PlayerList({
   beatTheBookieMap,
   teeTimes,
   winPctMap,
+  currentRound,
   onPick,
 }: PlayerListProps) {
   const router = useRouter()
@@ -141,6 +143,11 @@ export default function PlayerList({
                 {(player.total_score != null && (player.total_score !== 0 || player.holes_completed > 0)) && (
                   <span className="text-[#8ab89a]">
                     · {player.total_score === 0 ? 'E' : player.total_score > 0 ? `+${player.total_score}` : player.total_score}
+                    {player.current_round_score !== 0 && (
+                      <span className={player.current_round_score < 0 ? 'text-[#4adb7a]' : 'text-[#e05555]'}>
+                        {' '}(R{currentRound}: {player.current_round_score > 0 ? `+${player.current_round_score}` : player.current_round_score})
+                      </span>
+                    )}
                   </span>
                 )}
               </div>
