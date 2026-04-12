@@ -214,7 +214,7 @@ export default async function HomePage() {
       />
 
       {/* Fantasy game leaderboard */}
-      <FantasyLeaderboard leagueId={leagueId} userId={userId} />
+      <FantasyLeaderboard leagueId={leagueId} userId={userId} round={tournament.current_round} />
 
       {/* Live Masters tournament leaderboard */}
       <TournamentLeaderboard />

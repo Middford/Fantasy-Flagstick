@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import MemberTeamSheet from '@/components/leaderboard/MemberTeamSheet'
 
 interface Entry {
   userId: string
@@ -17,12 +18,15 @@ function scoreLabel(s: number) {
 export default function FantasyLeaderboard({
   leagueId,
   userId,
+  round,
 }: {
   leagueId: string | null
   userId: string
+  round: number
 }) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
+  const [sheet, setSheet] = useState<{ userId: string; displayName: string } | null>(null)
 
   useEffect(() => {
     if (!leagueId) { setLoading(false); return }
@@ -43,30 +47,46 @@ export default function FantasyLeaderboard({
   if (loading) return <div className="px-4 py-3 text-xs text-[#5a7a65]">Loading...</div>
 
   return (
-    <div className="border-b border-[#1a3d2b]">
-      <div className="px-4 py-2 bg-[#0f2518]">
-        <h2 className="text-sm font-bold text-[#c9a227]">Fantasy Leaderboard</h2>
+    <>
+      <div className="border-b border-[#1a3d2b]">
+        <div className="px-4 py-2 bg-[#0f2518]">
+          <h2 className="text-sm font-bold text-[#c9a227]">Fantasy Leaderboard</h2>
+        </div>
+        <div className="divide-y divide-[#1a3d2b]">
+          {entries.map((e) => {
+            const isMe = e.userId === userId
+            return (
+              <button
+                key={e.userId}
+                onClick={() => setSheet({ userId: e.userId, displayName: e.displayName })}
+                className={`w-full flex items-center px-4 py-2 gap-3 text-left active:bg-[#1a3d2b] transition-colors ${isMe ? 'bg-[#0f2518] border-l-2 border-[#c9a227]' : ''}`}
+              >
+                <span className="text-xs text-[#5a7a65] w-6 text-center">{e.position}</span>
+                <div className="flex-1 min-w-0">
+                  <span className={`text-sm truncate ${isMe ? 'text-[#c9a227] font-bold' : 'text-white'}`}>
+                    {e.displayName}
+                    {isMe && <span className="ml-1.5 text-[10px] text-[#c9a227]">You</span>}
+                  </span>
+                  <p className="text-[10px] text-[#5a7a65]">{e.holesCompleted} holes</p>
+                </div>
+                <span className={`text-sm font-score font-bold w-10 text-right ${e.totalScore < 0 ? 'text-[#4adb7a]' : e.totalScore > 0 ? 'text-[#e05555]' : 'text-white'}`}>
+                  {scoreLabel(e.totalScore)}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
-      <div className="divide-y divide-[#1a3d2b]">
-        {entries.map((e) => {
-          const isMe = e.userId === userId
-          return (
-            <div
-              key={e.userId}
-              className={`flex items-center px-4 py-2 gap-3 ${isMe ? 'bg-[#1a3d2b] border-l-2 border-[#c9a227]' : ''}`}
-            >
-              <span className="text-xs text-[#5a7a65] w-6 text-center">{e.position}</span>
-              <span className={`text-sm flex-1 truncate ${isMe ? 'text-[#c9a227] font-bold' : 'text-white'}`}>
-                {e.displayName}
-              </span>
-              <span className="text-[10px] text-[#5a7a65] w-8 text-center">{e.holesCompleted}h</span>
-              <span className={`text-sm font-score font-bold w-10 text-right ${e.totalScore < 0 ? 'text-[#4adb7a]' : e.totalScore > 0 ? 'text-[#e05555]' : 'text-white'}`}>
-                {scoreLabel(e.totalScore)}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
+
+      {sheet && (
+        <MemberTeamSheet
+          leagueId={leagueId}
+          targetUserId={sheet.userId}
+          displayName={sheet.displayName}
+          round={round}
+          onClose={() => setSheet(null)}
+        />
+      )}
+    </>
   )
 }
